@@ -1,0 +1,258 @@
+# StarRocks Production Helm Values
+# Chart: starrocks/kube-starrocks
+# Profil: 10-100 TB Hot Layer, >500 User, >100 QPS, Shared-Data Mode
+#
+# Vorbedingungen:
+#   - Namespace 'starrocks' existiert
+#   - Secret 'starrocks-s3-credentials' existiert (siehe secrets/)
+#   - ConfigMaps 'starrocks-fe-config' und 'starrocks-cn-config' deployed
+#   - StorageClass 'fast-ssd' (FE-Meta) und 'local-nvme' (CN-Cache) verfügbar
+#   - Worker-Nodes mit lokaler NVMe sind mit Label 'starrocks.io/cache=nvme' versehen
+
+nameOverride: starrocks
+timeZone: Europe/Berlin
+
+operator:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+
+starrocksCluster:
+  enabledCn: true
+  enabledBe: false
+  componentValues:
+    runMode: shared_data
+  storageVolumes:
+    - name: builtin_storage_volume
+      type: S3
+      bucket: starrocks-shared-data
+      endpoint: http://minio.minio.svc.cluster.local:9000
+      pathStyleAccess: true
+      region: us-east-1
+      credential:
+        secretRef:
+          name: starrocks-s3-credentials
+
+starrocksFESpec:
+  replicas: 3
+  image:
+    repository: starrocks/fe-ubuntu
+    tag: "3.3.5"
+  resources:
+    requests: { cpu: "4", memory: "16Gi" }
+    limits:   { cpu: "8", memory: "32Gi" }
+  storageSpec:
+    name: fe-meta
+    storageClassName: fast-ssd
+    storageSize: 50Gi
+  configMapInfo:
+    configMapName: starrocks-fe-config
+    resolveKey: fe.conf
+  # JAVA_OPTS in configmap-fe.yaml (fe.conf) gepflegt -- nicht hier duplizieren
+  service:
+    type: ClusterIP
+  serviceAccount: starrocks
+  podLabels:
+    app.kubernetes.io/component: fe
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [fe]
+          topologyKey: kubernetes.io/hostname
+
+starrocksCnSpec:
+  # WICHTIG: Bei aktivem autoScalingPolicy KEIN replicas-Feld setzen.
+  # Der Operator setzt replicas dann auf null und HPA übernimmt die Kontrolle.
+  # (Quelle: offizielles Chart-values.yaml v1.11.4 — Kommentar zu CN-Replicas)
+  # replicas: 6   <- nur setzen wenn autoScalingPolicy unten entfernt/auskommentiert
+  image:
+    repository: starrocks/cn-ubuntu
+    tag: "3.3.5"
+  resources:
+    requests: { cpu: "16", memory: "64Gi" }
+    limits:   { cpu: "32", memory: "128Gi" }
+  storageSpec:
+    name: cn-cache
+    storageClassName: local-nvme
+    storageSize: 4000Gi
+  configMapInfo:
+    configMapName: starrocks-cn-config
+    resolveKey: cn.conf
+  cnEnvVars:
+    - name: JAVA_OPTS_FOR_JDK_11
+      value: "-Xmx4g -Xms4g"
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: starrocks.io/cache
+                operator: In
+                values: ["nvme"]
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values: [cn]
+            topologyKey: kubernetes.io/hostname
+  # HPA für CN -- Voraussetzungen:
+  #   - metrics-server im Cluster (kubectl top nodes muss funktionieren)
+  #   - K8s-Version >= 1.23 (autoscaling/v2 GA)
+  # Hinweis: FE wird bewusst NICHT skaliert (Raft-Quorum mit 3 Replicas fix).
+  autoScalingPolicy:
+    version: v2
+    minReplicas: 6
+    maxReplicas: 12
+    # horizontal-pod-autosacler
+    hpaPolicy:
+      metrics:
+        - type: Resource
+          resource:
+            name: cpu
+            target:
+              type: Utilization
+              averageUtilization: 70
+        - type: Resource
+          resource:
+            name: memory
+            target:
+              type: Utilization
+              averageUtilization: 75
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 60
+        scaleDown:
+          # Konservativ: vermeidet Pod-Termination mitten im Query-Run.
+          # Cache-Verlust bei Scale-Down kostet Re-Warmup-Zeit.
+          stabilizationWindowSeconds: 600
+          selectPolicy: Disabled
+
+# ServiceMonitor für Prometheus (cluster muss kube-prometheus-stack haben)
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels:
+      release: prometheus
+
+# =============================================================================
+# Multi-Warehouse — zukünftige Erweiterung, nicht initial aktiviert
+# =============================================================================
+# Trigger-Punkte für die Aktivierung:
+#
+#   1) API-p95 degradiert spürbar, sobald nachts ETL/MV-Refresh läuft
+#      → eigenes wh_etl trennen
+#   2) BI-Heavy-Queries räumen den heißen Cache der API-Lookup-Tabellen aus
+#      → eigenes wh_api für Customer-facing Workloads
+#   3) Ein einzelner Tenant/Service braucht garantierte Compute-Resources,
+#      die durch Resource Groups nicht ausreichend isoliert sind
+#
+# Vorher: mit Default-Warehouse + Resource Groups (rg_api/rg_bi/rg_etl) weiter-
+# fahren. Multi-Warehouse erhöht Operations-Komplexität (mehrfacher Cache-
+# Footprint, mehr Pods, eigene HPA pro Warehouse) und sollte nur eingeführt
+# werden, wenn die Trigger oben tatsächlich messbar sind.
+#
+# -----------------------------------------------------------------------------
+# Verifiziert für kube-starrocks Helm-Chart 1.11.4
+# -----------------------------------------------------------------------------
+# Die Helm-Values dieses Charts enthalten KEIN Multi-Warehouse-Feld. Multi-
+# Warehouse wird über die separate CRD 'StarRocksWarehouse' realisiert, die
+# vom Operator in 1.11.4 mit installiert wird (verifizieren mit:
+# `kubectl get crd | grep starrockswarehouses`).
+#
+# Pattern: Cluster bleibt via diesem Helm-Release gemanagt. Zusätzliche
+# Warehouses werden als eigene Manifeste appliziert, alle referenzieren
+# denselben StarRocksCluster (Feld: spec.starRocksCluster).
+#
+# -----------------------------------------------------------------------------
+# Beispiel-Manifest für ein Warehouse (in eigene Datei legen, nicht via Helm)
+# -----------------------------------------------------------------------------
+# Datei z.B. starrocks/warehouses/wh-api.yaml, applizieren mit:
+#   kubectl apply -n starrocks -f starrocks/warehouses/wh-api.yaml
+#
+# apiVersion: starrocks.com/v1
+# kind: StarRocksWarehouse
+# metadata:
+#   name: wh-api
+#   namespace: starrocks
+# spec:
+#   # MUSS auf den Namen des StarRocksCluster zeigen, der von diesem Helm-
+#   # Release angelegt wird (Default: 'kube-starrocks' bzw. nameOverride oben).
+#   starRocksCluster: starrocks
+#   template:
+#     image:
+#       repository: starrocks/cn-ubuntu
+#       tag: "3.3.5"
+#     # replicas: NICHT setzen, da autoScalingPolicy unten aktiv ist
+#     # (Operator nullt replicas, HPA übernimmt). Bei einem Warehouse OHNE
+#     # autoScalingPolicy stattdessen 'replicas: N' explizit angeben.
+#     resources:
+#       requests: { cpu: "16", memory: "64Gi" }
+#       limits:   { cpu: "32", memory: "128Gi" }
+#     storageVolumes:
+#       - name: cn-cache
+#         storageClassName: local-nvme
+#         storageSize: 4000Gi
+#         mountPath: /opt/starrocks/cn/storage
+#     configMapInfo:
+#       configMapName: starrocks-cn-config
+#       resolveKey: cn.conf
+#     affinity:
+#       nodeAffinity:
+#         requiredDuringSchedulingIgnoredDuringExecution:
+#           nodeSelectorTerms:
+#             - matchExpressions:
+#                 - key: starrocks.io/cache
+#                   operator: In
+#                   values: ["nvme"]
+#     autoScalingPolicy:
+#       version: v2
+#       minReplicas: 3
+#       maxReplicas: 8
+#       hpaPolicy:
+#         metrics:
+#           - type: Resource
+#             resource:
+#               name: cpu
+#               target: { type: Utilization, averageUtilization: 60 }
+#         behavior:
+#           scaleDown: { selectPolicy: Disabled }
+#
+# Analog dazu wh-bi.yaml und wh-etl.yaml — gleicher 'starRocksCluster',
+# unterschiedliche Sizing-Profile. wh_etl könnte minReplicas: 0 haben für
+# Scale-to-Zero off-peak.
+#
+# -----------------------------------------------------------------------------
+# Nach dem Apply: SQL-Setup
+# -----------------------------------------------------------------------------
+#
+#   SHOW WAREHOUSES;     -- wh_api / wh_bi / wh_etl müssen gelistet sein
+#
+#   CREATE WAREHOUSE wh_api  PROPERTIES ("size" = "small");
+#   CREATE WAREHOUSE wh_bi   PROPERTIES ("size" = "medium");
+#   CREATE WAREHOUSE wh_etl  PROPERTIES ("size" = "large");
+#   -- ggf. nicht nötig, wenn die Operator-CR den Warehouse-Eintrag
+#   -- automatisch im Cluster registriert. Erst SHOW WAREHOUSES prüfen.
+#
+#   ALTER USER 'svc_api' SET PROPERTY 'default_warehouse' = 'wh_api';
+#   ALTER USER 'bi_team' SET PROPERTY 'default_warehouse' = 'wh_bi';
+#   ALTER USER 'svc_etl' SET PROPERTY 'default_warehouse' = 'wh_etl';
+#
+# Kontrolle: pro Warehouse laufen eigene CN-Pods, eigener Cache, eigene
+# Failure-Domain. Resource Groups bleiben zusätzlich aktiv (limitieren
+# pro User innerhalb eines Warehouse weiterhin per Quota).
+# =============================================================================

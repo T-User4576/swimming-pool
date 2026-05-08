@@ -1,0 +1,196 @@
+# =============================================================================
+# Iceberg Maintenance — Argo Workflows
+# =============================================================================
+# Drei Bausteine:
+#   1) WorkflowTemplate 'iceberg-maintenance'  -- ruft den Spark-Job auf,
+#                                                 parametriert nach jobs/namespaces
+#   2) CronWorkflow 'iceberg-daily-maintenance' -- Compaction + Snapshot Expiry
+#                                                  + Manifest Rewrite, taeglich
+#   3) CronWorkflow 'iceberg-weekly-orphan'     -- Orphan File Removal, woechentlich
+#
+# Voraussetzungen:
+#   - Spark Operator im Cluster (sparkoperator.k8s.io)
+#   - ConfigMap 'iceberg-maintenance-script' mit ../spark/maintenance.py
+#     (oder PVC / Init-Container, je nach eurem Spark-Job-Pattern)
+#   - Secret 'lakekeeper-credentials' mit OIDC-Client-Credentials
+#   - Secret 'minio-credentials' mit S3-Credentials
+#
+# Agnostik-Prinzip:
+#   - Der Spark-Job listet alle Tabellen via Catalog-Discovery
+#   - Pro Tabelle entscheiden TBLPROPERTIES, ob/wie maintained wird
+#   - Neue Tabellen werden automatisch erfasst, ohne Workflow-Anpassung
+#   - Opt-out per ALTER TABLE ... SET TBLPROPERTIES
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# 1) Generischer WorkflowTemplate
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: iceberg-maintenance
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow-spark
+  entrypoint: run
+  arguments:
+    parameters:
+      - name: jobs              # compaction,snapshot,orphan,manifest,position_deletes
+      - name: namespaces        # leer = alle, sonst CSV
+        value: ""
+      - name: tables            # leer = alle, sonst CSV (db.table)
+        value: ""
+      - name: dry-run
+        value: "false"
+      - name: driver-memory
+        value: "8g"
+      - name: executor-instances
+        value: "5"
+      - name: executor-memory
+        value: "16g"
+      - name: executor-cores
+        value: "4"
+  templates:
+    - name: run
+      inputs:
+        parameters:
+          - name: jobs
+          - name: namespaces
+          - name: tables
+          - name: dry-run
+          - name: driver-memory
+          - name: executor-instances
+          - name: executor-memory
+          - name: executor-cores
+      resource:
+        action: create
+        successCondition: status.applicationState.state == COMPLETED
+        failureCondition: status.applicationState.state == FAILED
+        manifest: |
+          apiVersion: sparkoperator.k8s.io/v1beta2
+          kind: SparkApplication
+          metadata:
+            generateName: iceberg-maint-
+            namespace: spark
+          spec:
+            type: Python
+            pythonVersion: "3"
+            mode: cluster
+            image: apache/spark:3.5.1-python3
+            imagePullPolicy: IfNotPresent
+            mainApplicationFile: local:///opt/spark/work-dir/maintenance.py
+            arguments:
+              - "--catalog"
+              - "lake"
+              - "--jobs"
+              - "{{inputs.parameters.jobs}}"
+              - "--namespaces"
+              - "{{inputs.parameters.namespaces}}"
+              - "--tables"
+              - "{{inputs.parameters.tables}}"
+              {{- if eq inputs.parameters.dry-run "true" }}
+              - "--dry-run"
+              {{- end }}
+            sparkConf:
+              # Iceberg + Lakekeeper (REST) + MinIO
+              spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
+              spark.sql.catalog.lake: org.apache.iceberg.spark.SparkCatalog
+              spark.sql.catalog.lake.type: rest
+              spark.sql.catalog.lake.uri: http://lakekeeper.lakekeeper.svc.cluster.local:8181/catalog
+              spark.sql.catalog.lake.warehouse: main
+              spark.sql.catalog.lake.io-impl: org.apache.iceberg.aws.s3.S3FileIO
+              spark.sql.catalog.lake.s3.endpoint: http://minio.minio.svc.cluster.local:9000
+              spark.sql.catalog.lake.s3.path-style-access: "true"
+              # Performance
+              spark.sql.shuffle.partitions: "200"
+              spark.serializer: org.apache.spark.serializer.KryoSerializer
+            deps:
+              packages:
+                - org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.0
+                - org.apache.iceberg:iceberg-aws-bundle:1.6.0
+            volumes:
+              - name: maintenance-script
+                configMap:
+                  name: iceberg-maintenance-script
+            driver:
+              cores: 2
+              memory: "{{inputs.parameters.driver-memory}}"
+              labels: { version: "3.5.1" }
+              serviceAccount: spark-driver
+              envSecretKeyRefs:
+                AWS_ACCESS_KEY_ID:
+                  name: minio-credentials
+                  key: access_key
+                AWS_SECRET_ACCESS_KEY:
+                  name: minio-credentials
+                  key: secret_key
+              volumeMounts:
+                - name: maintenance-script
+                  mountPath: /opt/spark/work-dir
+            executor:
+              cores: "{{inputs.parameters.executor-cores}}"
+              instances: "{{inputs.parameters.executor-instances}}"
+              memory: "{{inputs.parameters.executor-memory}}"
+              labels: { version: "3.5.1" }
+              envSecretKeyRefs:
+                AWS_ACCESS_KEY_ID:
+                  name: minio-credentials
+                  key: access_key
+                AWS_SECRET_ACCESS_KEY:
+                  name: minio-credentials
+                  key: secret_key
+            restartPolicy:
+              type: OnFailure
+              onFailureRetries: 2
+              onFailureRetryInterval: 30
+              onSubmissionFailureRetries: 3
+              onSubmissionFailureRetryInterval: 60
+
+---
+# -----------------------------------------------------------------------------
+# 2) Daily Maintenance: Compaction + Snapshot Expiry + Manifest Rewrite
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: iceberg-daily-maintenance
+  namespace: argo
+spec:
+  schedule: "0 2 * * *"           # 02:00 Uhr UTC
+  timezone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 10
+  workflowSpec:
+    workflowTemplateRef:
+      name: iceberg-maintenance
+    arguments:
+      parameters:
+        - name: jobs
+          value: "compaction,position_deletes,snapshot,manifest"
+
+---
+# -----------------------------------------------------------------------------
+# 3) Weekly Orphan-File-Cleanup (gefaehrlichster Job, nur 1x pro Woche)
+# -----------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: iceberg-weekly-orphan
+  namespace: argo
+spec:
+  schedule: "0 4 * * 0"           # Sonntag 04:00
+  timezone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    workflowTemplateRef:
+      name: iceberg-maintenance
+    arguments:
+      parameters:
+        - name: jobs
+          value: "orphan"
+        - name: dry-run
+          value: "false"
+        - name: executor-instances
+          value: "10"

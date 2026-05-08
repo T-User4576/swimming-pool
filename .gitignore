@@ -1,23 +1,77 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
+# =============================================================================
+# Lakehouse Repo .gitignore
+# =============================================================================
+
+# --- Python (PySpark Jobs in iceberg/spark/, ggf. weitere) ----------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.venv/
+venv/
+env/
+.python-version
+
+# --- Helm / Kubernetes ----------------------------------------------------
+*.tgz
+charts/
+Chart.lock
+kubeconfig
+*.kubeconfig
+
+# --- Secrets ---------------------------------------------------------------
+# Niemals echte Credentials committen. Beispiel-Templates (*.example.yaml /
+# *.example.json) sind erlaubt und werden hier explizit nicht ignoriert.
+*credentials.yaml
+*credentials.json
+*-secrets.yaml
+secrets/*.yaml
+secrets/*.json
+!secrets/*.example.yaml
+!secrets/*.example.json
+.env
+.env.*
+!.env.example
+
+# --- Terraform (falls je dazukommt) ---------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+
+# --- Spark / Iceberg lokale Artefakte -------------------------------------
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+
+# --- Editoren / IDEs ------------------------------------------------------
+.idea/
 .vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-files
-*.bclicense
-*.flf
-#Test results file
-TestResults.xml
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# --- OS-Müll --------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Claude Code lokale Settings ------------------------------------------
+.claude/
+
+# --- Logs / temporäre Dateien ---------------------------------------------
+*.log
+*.tmp
+logs/
+tmp/

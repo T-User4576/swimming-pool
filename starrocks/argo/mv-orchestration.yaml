@@ -1,0 +1,182 @@
+# =============================================================================
+# Argo Workflows: StarRocks Materialized View Orchestrierung
+# =============================================================================
+# Enthaelt drei Bausteine:
+#   1) WorkflowTemplate 'starrocks-mv-refresh'   -- generischer Refresh-Step
+#   2) CronWorkflow     'mv-orders-recent-cron'  -- scheduled Refresh
+#   3) WorkflowTemplate 'gold-orders-pipeline'   -- DAG: Mart-Load + MV-Refresh
+#                                                  (event-driven, nicht scheduled)
+#
+# Vorbedingungen:
+#   - Argo Workflows installiert, Namespace 'argo'
+#   - ServiceAccount 'argo-workflow-starrocks' im Namespace 'argo' mit
+#     Permissions zum Pod-Erzeugen
+#   - Secret 'starrocks-svc-credentials' im Namespace 'argo' mit Keys
+#     'user' und 'password' (Service-Account fuer SQL-Refresh)
+#   - StarRocks FE-Service erreichbar unter
+#     starrocks-fe-service.starrocks.svc.cluster.local:9030
+# =============================================================================
+
+---
+# -----------------------------------------------------------------------------
+# 1) Generische WorkflowTemplate: REFRESH MATERIALIZED VIEW
+# -----------------------------------------------------------------------------
+# Wird von CronWorkflows UND von DAGs aufgerufen. Ein Refresh-Step ueberall gleich.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: starrocks-mv-refresh
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow-starrocks
+  entrypoint: refresh
+  templates:
+    - name: refresh
+      inputs:
+        parameters:
+          - name: mv_name
+          - name: partition
+            value: ""        # leer = full refresh, sonst PARTITION (...) FORCE
+          - name: force
+            value: "false"   # bei Schema-/Code-Aenderungen FORCE noetig
+      retryStrategy:
+        limit: "2"
+        retryPolicy: OnFailure
+        backoff:
+          duration: "30s"
+          factor: "2"
+      container:
+        image: mysql:8.0
+        command: [bash, -c]
+        env:
+          - name: MV_NAME
+            value: "{{inputs.parameters.mv_name}}"
+          - name: PART
+            value: "{{inputs.parameters.partition}}"
+          - name: FORCE
+            value: "{{inputs.parameters.force}}"
+          - name: SR_HOST
+            value: starrocks-fe-service.starrocks.svc.cluster.local
+          - name: SR_USER
+            valueFrom:
+              secretKeyRef:
+                name: starrocks-svc-credentials
+                key: user
+          - name: SR_PASS
+            valueFrom:
+              secretKeyRef:
+                name: starrocks-svc-credentials
+                key: password
+        args:
+          - |
+            set -euo pipefail
+            if [ -n "$PART" ]; then
+              SQL="REFRESH MATERIALIZED VIEW ${MV_NAME} PARTITION ('${PART}') FORCE;"
+            elif [ "$FORCE" = "true" ]; then
+              SQL="REFRESH MATERIALIZED VIEW ${MV_NAME} FORCE;"
+            else
+              SQL="REFRESH MATERIALIZED VIEW ${MV_NAME};"
+            fi
+            echo "Executing: $SQL"
+            mysql -h "$SR_HOST" -P 9030 -u "$SR_USER" -p"$SR_PASS" -e "$SQL"
+
+            # Warten bis Refresh fertig (asynchroner REFRESH gibt sofort zurueck)
+            for i in $(seq 1 60); do
+              STATE=$(mysql -h "$SR_HOST" -P 9030 -u "$SR_USER" -p"$SR_PASS" -BN -e \
+                "SELECT state FROM information_schema.materialized_views \
+                 WHERE mv_name='${MV_NAME}';" || echo "UNKNOWN")
+              echo "Attempt $i, state=$STATE"
+              case "$STATE" in
+                NORMAL|FINISHED|SUCCESS) exit 0 ;;
+                FAILED|CANCELLED) exit 1 ;;
+              esac
+              sleep 30
+            done
+            echo "Timeout waiting for MV refresh"
+            exit 1
+
+---
+# -----------------------------------------------------------------------------
+# 2) CronWorkflow: scheduled Refresh fuer mv_orders_recent
+# -----------------------------------------------------------------------------
+# Pattern fuer Hot-Subset MVs ohne event-Trigger -- hier reicht stuendlich.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: mv-orders-recent-cron
+  namespace: argo
+spec:
+  schedule: "0 * * * *"          # stuendlich
+  concurrencyPolicy: Forbid       # ueberlappende Refreshes verhindern
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  workflowSpec:
+    workflowTemplateRef:
+      name: starrocks-mv-refresh
+    arguments:
+      parameters:
+        - name: mv_name
+          value: mv_orders_recent
+
+---
+# -----------------------------------------------------------------------------
+# 3) WorkflowTemplate (DAG): Mart-Load -> abhaengige MV-Refreshes
+# -----------------------------------------------------------------------------
+# Pattern fuer event-driven Refresh: nach erfolgreichem Spark-Mart-Load werden
+# alle abhaengigen MVs parallel refreshed. So ist die Konsistenz "Mart -> MV"
+# garantiert und keine MV liegt vor dem letzten Mart-Stand.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: gold-orders-pipeline
+  namespace: argo
+spec:
+  serviceAccountName: argo-workflow-starrocks
+  entrypoint: pipeline
+  templates:
+    - name: pipeline
+      dag:
+        tasks:
+          # 1. Spark-Job laedt Iceberg-Mart lake.gold.orders neu
+          - name: spark-mart-load
+            templateRef:
+              name: spark-job              # vorausgesetzt: existiert in eurem Cluster
+              template: run
+            arguments:
+              parameters:
+                - name: job
+                  value: gold_orders_load
+
+          # 2. Tages-Aggregat refreshen (Pattern 1)
+          - name: refresh-mv-orders-daily
+            dependencies: [spark-mart-load]
+            templateRef:
+              name: starrocks-mv-refresh
+              template: refresh
+            arguments:
+              parameters:
+                - name: mv_name
+                  value: mv_orders_daily
+
+          # 3. Hot-Subset refreshen (Pattern 2)
+          - name: refresh-mv-orders-recent
+            dependencies: [spark-mart-load]
+            templateRef:
+              name: starrocks-mv-refresh
+              template: refresh
+            arguments:
+              parameters:
+                - name: mv_name
+                  value: mv_orders_recent
+
+          # 4. Hot-Cache der Dim-Tabelle (Pattern 3) -- nur wenn dim_customer
+          #    im selben Load mitgewandert ist; hier optional / parallel
+          - name: refresh-mv-dim-customer
+            dependencies: [spark-mart-load]
+            templateRef:
+              name: starrocks-mv-refresh
+              template: refresh
+            arguments:
+              parameters:
+                - name: mv_name
+                  value: mv_dim_customer_hot

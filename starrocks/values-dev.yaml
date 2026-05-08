@@ -1,0 +1,68 @@
+# StarRocks Dev Helm Values
+# Schlankes Setup für PoC, lokales kind/k3d/minikube oder Dev-Namespace
+# Single FE + Single CN, kein NodeAffinity, Shared-Data gegen Dev-MinIO
+
+nameOverride: starrocks
+timeZone: Europe/Berlin
+
+operator:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+
+starrocksCluster:
+  enabledCn: true
+  enabledBe: false
+  componentValues:
+    runMode: shared_data
+  storageVolumes:
+    - name: builtin_storage_volume
+      type: S3
+      bucket: starrocks-shared-data-dev
+      endpoint: http://minio.minio-dev.svc.cluster.local:9000
+      pathStyleAccess: true
+      region: us-east-1
+      credential:
+        secretRef:
+          name: starrocks-s3-credentials
+
+starrocksFESpec:
+  replicas: 1
+  image:
+    repository: starrocks/fe-ubuntu
+    tag: "3.3.5"
+  resources:
+    requests: { cpu: "1", memory: "4Gi" }
+    limits:   { cpu: "2", memory: "8Gi" }
+  storageSpec:
+    name: fe-meta
+    storageSize: 10Gi
+  configMapInfo:
+    configMapName: starrocks-fe-config
+    resolveKey: fe.conf
+  feEnvVars:
+    - name: JAVA_OPTS
+      value: "-Xmx4g -Xms4g"
+  service:
+    type: ClusterIP
+
+starrocksCnSpec:
+  replicas: 1
+  image:
+    repository: starrocks/cn-ubuntu
+    tag: "3.3.5"
+  resources:
+    requests: { cpu: "2", memory: "8Gi" }
+    limits:   { cpu: "4", memory: "16Gi" }
+  storageSpec:
+    name: cn-cache
+    storageSize: 50Gi
+  configMapInfo:
+    configMapName: starrocks-cn-config
+    resolveKey: cn.conf
+
+metrics:
+  serviceMonitor:
+    enabled: false

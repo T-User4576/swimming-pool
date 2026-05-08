@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: starrocks-fe-config
+  namespace: starrocks
+  labels:
+    app.kubernetes.io/part-of: starrocks
+data:
+  fe.conf: |
+    # ========================================================================
+    # StarRocks FE Konfiguration (Shared-Data Mode)
+    # ========================================================================
+    # WICHTIG: configMapInfo ersetzt die Chart-Default-Config komplett.
+    # Daher MUESSEN Ports, JAVA_OPTS, LOG_DIR usw. explizit hier stehen --
+    # Operator-Services und Probes mappen auf genau diese Werte.
+
+    LOG_DIR = ${STARROCKS_HOME}/log
+    DATE = "$(date +%Y%m%d-%H%M%S)"
+    JAVA_OPTS = "-Dlog4j2.formatMsgNoLookups=true -Xmx16g -Xms16g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xlog:gc*:${LOG_DIR}/fe.gc.log.$DATE:time"
+
+    # Standard-Ports (entsprechen Chart-Default und Operator-Service-Mapping)
+    http_port = 8030
+    rpc_port = 9020
+    query_port = 9030
+    edit_log_port = 9010
+    mysql_service_nio_enabled = true
+    min_graceful_exit_time_second = 25
+
+    # Concurrency-Sizing fuer >500 User / >100 QPS
+    qe_max_connection = 4096
+    max_connection_scheduler_threads_num = 4096
+    max_routine_load_task_concurrent_num = 20
+
+    # Statistics: Cost-based Optimizer braucht aktuelle Stats
+    enable_statistic_collect = true
+    enable_collect_full_statistic = true
+    statistic_collect_interval_sec = 1800
+
+    # Iceberg / External Catalog Caching
+    enable_iceberg_metadata_disk_cache = true
+    iceberg_metadata_cache_disk_path = /opt/starrocks/fe/meta/iceberg_metadata_cache
+    iceberg_metadata_disk_cache_capacity = 10737418240   # 10 GB
+
+    # Query Defaults
+    query_timeout = 300
+    insert_load_default_timeout_second = 3600
+
+    # Audit Log
+    audit_log_dir = /opt/starrocks/fe/log
+    audit_log_modules = slow_query,query
+    audit_log_enable_compression = true
+
+    # HA / Heartbeat
+    heartbeat_timeout_second = 30
+
+    # Logging
+    sys_log_level = INFO
+    sys_log_roll_num = 10
+    sys_log_delete_age = 7d
+
+    # Audit-Plugin (separater Plugin-Install vorausgesetzt)
+    enable_audit_log = true
