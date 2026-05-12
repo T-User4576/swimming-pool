@@ -1,0 +1,21 @@
+# Lakekeeper Helm-Values für prod (Cedar-Migration).
+#
+# WICHTIG: Erst nach erfolgreichem dev-E2E (Plan-Phase D) anwenden.
+# Vor `helm upgrade` mit den existierenden Cluster-Werten mergen.
+
+authz:
+  backend: cedar
+
+extraEnv:
+  - name: LAKEKEEPER__OPENID_ROLES_CLAIM
+    value: "groups"
+  - name: LAKEKEEPER__CEDAR__EXTERNALLY_MANAGED_USER_AND_ROLES
+    value: "false"
+  - name: LAKEKEEPER__CEDAR__POLICY_SOURCES__K8S_CM
+    value: "lakekeeper-cedar-policies"
+  - name: LAKEKEEPER__CEDAR__REFRESH_INTERVAL_SECS
+    value: "10"
+  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_UNHANDLED_USERS
+    value: "true"
+  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_ROLE_ASSIGNMENTS
+    value: "true"

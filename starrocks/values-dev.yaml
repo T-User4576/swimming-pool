@@ -45,6 +45,15 @@ starrocksFESpec:
   feEnvVars:
     - name: JAVA_OPTS
       value: "-Xmx4g -Xms4g"
+  # FE legt den Iceberg-Metadata-Cache-Ordner nicht selbst an.
+  # Pfad muss zu iceberg_metadata_cache_disk_path in configmap-fe.yaml passen.
+  initContainers:
+    - name: init-iceberg-cache-dir
+      image: busybox:1.36
+      command: ["sh", "-c", "mkdir -p /opt/starrocks/fe/meta/iceberg_metadata_cache"]
+      volumeMounts:
+        - name: fe-meta
+          mountPath: /opt/starrocks/fe/meta
   service:
     type: ClusterIP
 

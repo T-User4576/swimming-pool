@@ -1,0 +1,25 @@
+# Lakekeeper Helm-Values für dev (Cedar-Migration).
+#
+# WICHTIG: Dies ist ein Override-Fragment für den Cedar-Switch.
+# Vor `helm upgrade` mit den existierenden Cluster-Werten mergen:
+#   helm get values lakekeeper -n lakekeeper > current-values-dev.yaml
+# und Inhalte zusammenführen — die hier definierten Felder gewinnen.
+
+authz:
+  backend: cedar
+  # openfga-Block: temporär stehen lassen für Rollback in Phase B/D.
+  # Nach erfolgreichem Cedar-Betrieb (Phase F) komplett entfernen.
+
+extraEnv:
+  - name: LAKEKEEPER__OPENID_ROLES_CLAIM
+    value: "groups"
+  - name: LAKEKEEPER__CEDAR__EXTERNALLY_MANAGED_USER_AND_ROLES
+    value: "false"
+  - name: LAKEKEEPER__CEDAR__POLICY_SOURCES__K8S_CM
+    value: "lakekeeper-cedar-policies"
+  - name: LAKEKEEPER__CEDAR__REFRESH_INTERVAL_SECS
+    value: "10"
+  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_UNHANDLED_USERS
+    value: "true"
+  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_ROLE_ASSIGNMENTS
+    value: "true"
