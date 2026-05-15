@@ -4,6 +4,23 @@ Dieses Dokument gibt Agents (auch leichteren Modellen) den Kontext, um im
 Repository sinnvolle Vorschläge zu machen, ohne die Architektur-Geschichte
 des Projekts neu ableiten zu müssen. Lies diesen Abschnitt vor jedem Task.
 
+`CLAUDE.md` im Repo-Root verweist ausschließlich hierher — diese Datei ist die
+Single Source of Truth für den Agenten-Kontext, unabhängig vom verwendeten Tool.
+
+### Repo-Charakter
+
+Dies ist ein **Design- und Deployment-Config-Repository, kein Anwendungs-Code**:
+Markdown-Konzepte, Helm-Values, K8s-ConfigMaps/Manifeste, Argo-`WorkflowTemplate`/
+`CronWorkflow`-YAML, SQL und ein einzelner PySpark-Job. Es gibt **keinen Build,
+kein Lint, keine Test-Suite**. "Ausführen" heißt: auf einen Kubernetes-Cluster
+applien (`kubectl` / `helm` / `argo`); die vollständigen Deployment-Sequenzen
+stehen in den `README.md` der jeweiligen Subfolder. Repo-Sprache ist Deutsch —
+neue Doku und Kommentare ebenso.
+
+Dem "Single Test" am nächsten kommt ein Dry-Run des Maintenance-Jobs:
+`argo submit --from cronwf/iceberg-daily-maintenance -n argo -p dry-run=true -p namespaces=gold`
+(oder `maintenance.py --dry-run` direkt via `spark-submit`).
+
 ---
 
 ## 1. Projektkontext (in 6 Zeilen)
@@ -33,9 +50,16 @@ Master-Architektur-Dokument: [`./lakehouse-architektur.md`](./lakehouse-architek
 | Flink für Streaming (Kafka → Iceberg) | verbindlich | lakehouse-architektur.md |
 | Argo Workflows für Orchestrierung | verbindlich | lakehouse-architektur.md |
 | MinIO als Storage-Backend (on-prem, S3-kompatibel) | verbindlich | lakehouse-architektur.md, Abschnitt "Storage-Entscheidung" |
+| Transform-Spec-Runner: deklarative Batch-Transformationen als eigener Mini-Layer auf Spark (statt externem Tool wie dbt) | verbindlich (v1) | transform/ |
 
 **Folgerung**: Alternativen zu den verbindlichen Punkten **nicht** ohne neuen
 Trigger vorschlagen. Optimierungen innerhalb des Stacks sind willkommen.
+
+**Hinweis Transform-Runner / Kafka**: Der Transform-Spec-Runner (`transform/`)
+darf Kafka als Source nur als **bounded Batch-Read** (fester Offset-Bereich)
+nutzen — kontinuierliches Streaming Kafka→Iceberg bleibt ausschließlich Flink.
+Diese Abgrenzung ist verbindlich. Der Runner ist bewusst ein minimaler eigener
+Layer; sobald der SQL-Anteil dominiert, ist dbt/SQLMesh der Migrations-Trigger.
 
 ---
 
@@ -49,7 +73,8 @@ swimming-pool/
 ├── starrocks/                      <- Serving-Engine
 ├── spark/                          <- Compute-Engine (Batch + Maintenance)
 ├── lakekeeper/                     <- (leer, geplant)
-└── oidc/                           <- (leer, geplant)
+├── oidc/                           <- (leer, geplant)
+└── transform/                      <- deklarative Batch-Transformationen (Spec-Runner)
 ```
 
 Jeder Subfolder bekommt unten einen eigenen Abschnitt. Bei neuem Subfolder:
@@ -234,7 +259,55 @@ Leer. Konzept folgt.
 
 ---
 
-## 9. Cross-cutting-Konventionen
+## 9. ./transform/
+
+### Zweck
+Deklaratives Transformations-Framework: config-getriebener Spec-Runner für
+häufige Batch-Verarbeitungen (Deduplizierung, Spalten-Mapping, Aggregation,
+Filter, Cast) Bronze→Silver→Gold. Kein pipeline-spezifischer Code — die
+Verarbeitung steht als YAML-Spec. Mirror des `iceberg/`-Maintenance-Musters
+(generischer Job + generisches WorkflowTemplate + Registry).
+
+### Inhalt
+- [`./transform/README.md`](./transform/README.md) — Quick-Start, Deployment, Code-Distribution
+- [`./transform/transform-spec.md`](./transform/transform-spec.md) — Spec-Schema-Referenz (source/schema/steps/sink) + Verifikations-Checkliste
+- [`./transform/spark/runner.py`](./transform/spark/runner.py) — generischer PySpark-Job, Registries `SOURCES`/`STEPS`/`SINKS`
+- [`./transform/argo/transform-workflow.yaml`](./transform/argo/transform-workflow.yaml) — WorkflowTemplate `spark-transform` + Beispiel-CronWorkflow + DAG
+- [`./transform/pipelines/`](./transform/pipelines/) — versionierte Pipeline-Specs
+
+### Verbindliche Konventionen
+- **Ein generischer Runner + ein WorkflowTemplate** — fachliche Logik gehört
+  ausschließlich in die Spec, nie in `runner.py` hardcoden
+- **Source/Step/Sink über Registries erweitern** (`SOURCES`/`STEPS`/`SINKS`) —
+  neuer Typ = Handler + Registry-Eintrag, kein Eingriff in `main()`
+- **v1-Sources**: `iceberg`, `file` (csv/json/parquet/orc, auch komprimiert),
+  `kafka`; **v1-Sink**: `iceberg`
+- **Kafka-Source nur bounded Batch-Read** (fester Offset-Bereich), nie
+  continuous — Streaming Kafka→Iceberg bleibt Flink
+- **Sink-Modes**: `append` / `overwrite_partitions` / `merge` — Pattern D
+  (`insertInto`) ist nicht erlaubt
+- **Sink-Tabellen** werden per DDL vorab/menschlich versioniert angelegt
+  (kuratierte TBLPROPERTIES, siehe `table-design.md`); `create_if_not_exists`
+  ist Notnagel, nicht der Normalfall
+- **Specs versioniert in `pipelines/`** — je Spec ein fachlich geowntes
+  Artefakt; Cron/DAG dazu im `transform-workflow.yaml`
+
+### Bezug zu anderen Foldern
+- Compute- und Schreib-Patterns (A/B/C): `./spark/best-practices.md`
+- Sink-Tabellen-Design + Maintenance-Properties: `./iceberg/`
+- `merge`-Sink erzeugt Position-Deletes → Sink-Tabelle braucht
+  `maintenance.position_deletes.enabled=true` (siehe `iceberg/maintenance.md`)
+
+### Offene Punkte
+- Inkrementelle Verarbeitung (`source.incremental`) — v1 ist Full-Refresh-Batch
+- `value_format: avro` für Kafka-Sources noch nicht implementiert
+- Sink-seitige Schema-Validierung gegen die Ziel-Tabelle
+- venv-pack-Distribution statt ConfigMap-Mount (ConfigMap-1-MiB-Limit)
+- `PyYAML` muss im Spark-Image vorhanden sein (PoC-Caveat)
+
+---
+
+## 10. Cross-cutting-Konventionen
 
 ### Naming
 - Iceberg-Namespaces: `bronze.<source>` / `silver.<domain>` / `gold.<domain>` / `serving.<consumer>` / `mart.<consumer>`
@@ -247,12 +320,21 @@ Leer. Konzept folgt.
 ### Governance
 - DDL/Schema-Changes über die jeweilige Schreib-Pipeline (Spark/Flink), nicht ad hoc per SQL
 - MV-Definitionen werden zusammen mit ihrer Mart-Pipeline versioniert
+- Transformations-Pipelines werden als versionierte Spec-Dateien in `transform/pipelines/` geownt — analog zu MV-Definitionen
 - Maintenance ist **agnostisch** — eine Pipeline pro Engine, alle Tabellen via Catalog-Discovery + Properties
 
 ### Agnostik-Prinzip
 Tabellenspezifische Konfiguration → über Properties/TBLPROPERTIES, nicht
 als Listen in YAML-Files. Jobs lesen Properties zur Laufzeit. Neue Tabelle
 anlegen = automatisch erfasst.
+
+**Klarstellung Transform-Specs**: Eine Per-Pipeline-YAML in
+`transform/pipelines/` verletzt dieses Prinzip **nicht**. Das Prinzip richtet
+sich gegen zentrale Tabellen-*Listen* für Querschnitts-Operationen (z.B.
+Maintenance). Eine Transformation ist dagegen ein diskretes, fachlich
+geowntes Artefakt, dessen Logik sich nicht aus Catalog-Properties ableiten
+lässt — genau wie eine MV-Definition. Agnostisch bleibt der *Runner*: eine
+Code-Basis, ein WorkflowTemplate; eine neue Pipeline = nur eine neue Spec-Datei.
 
 ### Verifikation gegen externe Quellen
 Versionen, die im Repo gepinnt sind:
@@ -272,7 +354,7 @@ statt aus dem Gedächtnis raten. Insbesondere:
 
 ---
 
-## 10. Anti-Patterns (was NICHT zu tun ist)
+## 11. Anti-Patterns (was NICHT zu tun ist)
 
 | Anti-Pattern | Warum |
 |---|---|
@@ -291,18 +373,20 @@ statt aus dem Gedächtnis raten. Insbesondere:
 | Streaming-Checkpoint-Bucket im Iceberg-`remove_orphan_files` | Cleanup löscht Checkpoint-Files → Stream beim nächsten Start kaputt; Bucket organisatorisch trennen |
 | Custom Image als alleinige Code-Distribution-Strategie pushen | Wir nutzen Runner-Image + venv-pack, NICHT Code im Image |
 | Pushgateway für StarRocks- oder Spark-Service-Metriken | Pushgateway = Batch-Jobs; für Services scrape direkt (siehe `starrocks/prometheus.md`) |
+| Pattern D (`insertInto` / dynamic partition overwrite) im Transform-Runner-Sink | Geht an der Iceberg-`writeTo`-API vorbei; `overwrite_partitions` (Pattern B) nutzen |
+| Pipeline-Logik in `transform/spark/runner.py` hardcoden statt in die Spec | Bricht das config-getriebene Prinzip — der Runner bleibt generisch, Fachliches gehört in die YAML-Spec |
 
 ---
 
-## 11. Wenn dieses Dokument geändert wird
+## 12. Wenn dieses Dokument geändert wird
 
 | Änderung | Was anpassen |
 |---|---|
 | Neue Architektur-Entscheidung | Abschnitt 2 |
 | Neuer Subfolder | Abschnitt 3 + neuen Abschnitt 4ff. |
-| Neue Konvention pro Engine | passender Abschnitt 4–8 |
-| Neues Anti-Pattern festgestellt | Abschnitt 10 |
-| Versions-Pinning geändert | Abschnitt 9 |
+| Neue Konvention pro Engine | passender Abschnitt 4–9 |
+| Neues Anti-Pattern festgestellt | Abschnitt 11 |
+| Versions-Pinning geändert | Abschnitt 10 |
 | Master-Plan-Update (`lakehouse-architektur.md`) | Abschnitt 1 oder 2 ggf. nachziehen |
 
 Bei Unklarheit über die Aktualität eines Punkts: gegen die referenzierten

@@ -1,0 +1,54 @@
+# =============================================================================
+# Beispiel-Pipeline: Bronze -> Silver, Deduplizierung + Spalten-Mapping
+# =============================================================================
+# Bereinigt Roh-Bestellungen: dedupliziert auf order_id (neueste Version je
+# Bestellung anhand UPDATED_AT), benennt Spalten auf die Silver-Konvention um,
+# typisiert via Schema-Enforcement. Schreibt idempotent per overwrite_partitions.
+# Spec-Schema-Referenz: ../transform-spec.md
+# =============================================================================
+
+name: silver-orders-dedup
+description: >
+  Bronze-Rohbestellungen deduplizieren und auf die Silver-Namens- und
+  Typkonvention bringen.
+
+source:
+  type: iceberg
+  table: lake.bronze.orders_raw
+
+schema:
+  mode: enforce
+  on_extra_columns: ignore
+  columns:
+    - { name: ID,         type: bigint,         nullable: false }
+    - { name: ORDER_TS,   type: timestamp,      nullable: false }
+    - { name: CUST_ID,    type: bigint }
+    - { name: AMT,        type: "decimal(12,2)" }
+    - { name: STATUS,     type: string }
+    - { name: UPDATED_AT, type: timestamp }
+
+steps:
+  - type: filter
+    where: "ID IS NOT NULL AND ORDER_TS IS NOT NULL"
+
+  - type: dedup
+    keys: [ID]
+    order_by:
+      - { column: UPDATED_AT, dir: desc }   # behält die neueste Zeile je ID
+
+  - type: rename
+    columns:
+      ID:         order_id
+      ORDER_TS:   order_ts
+      CUST_ID:    customer_id
+      AMT:        amount
+      STATUS:     status
+      UPDATED_AT: updated_at
+
+  - type: select
+    columns: [order_id, order_ts, customer_id, amount, status, updated_at]
+
+sink:
+  type: iceberg
+  table: lake.silver.orders
+  mode: overwrite_partitions

@@ -1,0 +1,35 @@
+# =============================================================================
+# Beispiel-Pipeline: Silver -> Gold, Aggregation
+# =============================================================================
+# Tages-Umsatz pro Kunde aus den bereinigten Silver-Orders. Filtert stornierte
+# Bestellungen, leitet order_day ab, aggregiert. Schreibt idempotent per
+# overwrite_partitions. Spec-Schema-Referenz: ../transform-spec.md
+# =============================================================================
+
+name: gold-revenue-daily
+description: >
+  Tages-Umsatz je Kunde aus lake.silver.orders.
+
+source:
+  type: iceberg
+  table: lake.silver.orders
+
+steps:
+  - type: filter
+    where: "status <> 'CANCELLED' AND amount > 0"
+
+  - type: derive
+    columns:
+      order_day: "cast(order_ts as date)"
+
+  - type: aggregate
+    group_by: [order_day, customer_id]
+    aggregations:
+      - { column: amount,   func: sum,   as: revenue }
+      - { column: order_id, func: count, as: order_count }
+      - { column: amount,   func: avg,   as: avg_ticket }
+
+sink:
+  type: iceberg
+  table: lake.gold.revenue_daily
+  mode: overwrite_partitions

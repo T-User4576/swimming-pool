@@ -1,0 +1,45 @@
+# =============================================================================
+# Beispiel-Pipeline: S3-Datei -> Bronze, CSV-Ingest
+# =============================================================================
+# Liest eine täglich angelieferte CSV-Datei aus dem Landing-Bucket, erzwingt
+# das Eingangs-Schema und schreibt idempotent per overwrite_partitions in die
+# Bronze-Schicht. Kein Step nötig — reine Format-Konvertierung (CSV -> Iceberg).
+# Spec-Schema-Referenz: ../transform-spec.md
+# =============================================================================
+
+name: bronze-orders-ingest
+description: >
+  CSV-Lieferung aus s3a://landing/orders/ einlesen und als Iceberg-Tabelle
+  in lake.bronze.orders_raw ablegen. Schema wird per enforce erzwungen,
+  damit Type-Fehler in der Lieferung sofort scheitern.
+
+source:
+  type: file
+  path: s3a://landing/orders/            # Prefix: alle Dateien im Ordner
+  format: csv
+  options:
+    header: "true"
+    delimiter: ";"
+    # .gz-Kompression wird automatisch an der Datei-Endung erkannt —
+    # keine extra Option nötig.
+
+schema:
+  mode: enforce                          # select + cast auf Soll-Schema; Extra-Spalten werden verworfen
+  on_missing_columns: error             # fehlende Pflicht-Spalten → Abbruch
+  columns:
+    - { name: order_id,    type: bigint,          nullable: false }
+    - { name: customer_id, type: bigint,          nullable: false }
+    - { name: order_ts,    type: timestamp,        nullable: false }
+    - { name: status,      type: string }
+    - { name: amount,      type: "decimal(12,2)" }
+    - { name: discount_rate, type: "decimal(5,4)" }
+    - { name: updated_at,  type: timestamp }
+    - { name: ingest_ts,   type: timestamp }
+
+# Keine steps — Schema-Enforcement durch den schema-Block oben
+# reicht; Bereinigung (Dedup, Filter) folgt in der Silver-Pipeline.
+
+sink:
+  type: iceberg
+  table: lake.bronze.orders_raw
+  mode: overwrite_partitions
