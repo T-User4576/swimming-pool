@@ -1,0 +1,32 @@
+# OpenFGA Helm-Values (Chart: openfga/openfga).
+#
+# Helm-Repo hinzufügen:
+#   helm repo add openfga https://openfga.github.io/helm-charts
+#   helm repo update
+#
+# Deployment:
+#   kubectl apply -f lakekeeper/openfga/secret.yaml          # echtes Secret zuerst
+#   helm upgrade --install openfga openfga/openfga \
+#     --namespace lakekeeper \
+#     --values lakekeeper/openfga/values.yaml \
+#     --atomic --wait --timeout 5m
+
+replicaCount: 1   # prod: 2
+
+datastore:
+  engine: postgres
+  # Secret muss OPENFGA_DATASTORE_URI als Key enthalten.
+  # Format: postgres://user:pass@host:5432/openfga?sslmode=disable
+  uriSecret: openfga-postgres-uri
+
+service:
+  grpc:
+    port: 8081   # Lakekeeper verbindet sich auf diesen Port
+  http:
+    port: 8080   # Admin-API / Playground
+
+# Playground im Dev nützlich, in Prod deaktivieren:
+playground:
+  enabled: true   # prod: false
+
+# Liveness / Readiness — Defaults aus dem Chart sind ausreichend.

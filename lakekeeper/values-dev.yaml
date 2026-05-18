@@ -1,25 +1,65 @@
-# Lakekeeper Helm-Values für dev (Cedar-Migration).
+# Lakekeeper Helm-Values für dev (OpenFGA-Authorizer + Role-Sync-Sidecar).
 #
-# WICHTIG: Dies ist ein Override-Fragment für den Cedar-Switch.
+# WICHTIG: Dies ist ein Override-Fragment.
 # Vor `helm upgrade` mit den existierenden Cluster-Werten mergen:
 #   helm get values lakekeeper -n lakekeeper > current-values-dev.yaml
-# und Inhalte zusammenführen — die hier definierten Felder gewinnen.
 
 authz:
-  backend: cedar
-  # openfga-Block: temporär stehen lassen für Rollback in Phase B/D.
-  # Nach erfolgreichem Cedar-Betrieb (Phase F) komplett entfernen.
+  backend: openfga
 
 extraEnv:
-  - name: LAKEKEEPER__OPENID_ROLES_CLAIM
-    value: "groups"
-  - name: LAKEKEEPER__CEDAR__EXTERNALLY_MANAGED_USER_AND_ROLES
-    value: "false"
-  - name: LAKEKEEPER__CEDAR__POLICY_SOURCES__K8S_CM
-    value: "lakekeeper-cedar-policies"
-  - name: LAKEKEEPER__CEDAR__REFRESH_INTERVAL_SECS
-    value: "10"
-  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_UNHANDLED_USERS
-    value: "true"
-  - name: LAKEKEEPER__ROLE_PROVIDER_CHAIN__LOG_ROLE_ASSIGNMENTS
-    value: "true"
+  - name: LAKEKEEPER__OPENFGA__ENDPOINT
+    value: "http://openfga.lakekeeper.svc.cluster.local:8081"
+  - name: LAKEKEEPER__OPENFGA__STORE_NAME
+    value: "lakekeeper"
+
+# ---------------------------------------------------------------------------
+# Role-Sync-Sidecar: Keycloak-Gruppen → Lakekeeper-Rollen
+#
+# Mapping: ROLE_MAPPING_<LAKEKEEPER-ROLLE>=KcGruppe1,KcGruppe2,...
+#   - Rollenname muss in Lakekeeper existieren (case-insensitiv)
+#   - Priorität bei mehrfacher Übereinstimmung: alphabetisch nach Rollenname
+#   - User ohne passende Gruppe erhalten keine Rolle → manuelle Zuweisung via UI
+#   - User mit bereits zugewiesener Rolle (auch manuell) werden nie angetastet
+# ---------------------------------------------------------------------------
+extraContainers:
+  - name: role-sync
+    image: python:3.12-slim
+    command:
+      - sh
+      - -c
+      - pip install --quiet --no-cache-dir requests && exec python /scripts/sync.py
+    env:
+      - name: KEYCLOAK_URL
+        value: "https://keycloak.example.com"
+      - name: KEYCLOAK_REALM
+        value: "lakehouse"
+      - name: KEYCLOAK_CLIENT_ID
+        value: "svc-lakekeeper-sync"
+      - name: LAKEKEEPER_URL
+        value: "http://localhost:8181"
+      - name: SYNC_INTERVAL_SECS
+        value: "60"
+      # --- Mapping (anpassen) ---
+      - name: ROLE_MAPPING_ADMIN
+        value: "AbteilungIT,AbteilungCompliance"
+      - name: ROLE_MAPPING_WORKER
+        value: "AbteilungData"
+    envFrom:
+      - secretRef:
+          name: lakekeeper-role-sync-credentials
+    volumeMounts:
+      - name: role-sync-script
+        mountPath: /scripts
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+extraVolumes:
+  - name: role-sync-script
+    configMap:
+      name: lakekeeper-role-sync-script

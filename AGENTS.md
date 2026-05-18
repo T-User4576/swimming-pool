@@ -71,8 +71,10 @@ swimming-pool/
 ├── lakehouse-architektur.md        <- Master-Plan
 ├── iceberg/                        <- Tabellen-Design + Maintenance
 ├── starrocks/                      <- Serving-Engine
+│   └── mcp/                        <- StarRocks-MCP-Server (OpenCode-Integration)
 ├── spark/                          <- Compute-Engine (Batch + Maintenance)
-├── lakekeeper/                     <- (leer, geplant)
+├── lakekeeper/                     <- Catalog-Server (OpenFGA-Authz)
+│   └── mcp/                        <- Lakekeeper-MCP-Server (OpenCode-Integration)
 ├── oidc/                           <- (leer, geplant)
 └── transform/                      <- deklarative Batch-Transformationen (Spec-Runner)
 ```
@@ -151,6 +153,12 @@ Materialisierungs-Strategie.
 ### Inhalt (./starrocks/argo/, ./starrocks/secrets/)
 - `argo/mv-orchestration.yaml` — WorkflowTemplate + CronWorkflow + DAG für MV-Refresh
 - `secrets/starrocks-s3-credentials.example.yaml` — Secret-Template (NIE mit echten Werten committen)
+
+### Inhalt (./starrocks/mcp/)
+- [`./starrocks/mcp/README.md`](./starrocks/mcp/README.md) — Offline-Setup des
+  offiziellen StarRocks-MCP-Servers (`mcp-server-starrocks`) für OpenCode:
+  Wheels → Nexus → uv → opencode.json. Gibt dem LLM SQL-Zugriff auf alle
+  Iceberg-Schichten via `lake`-Catalog (inkl. `analyze_query`, `table_overview`).
 
 ### Verbindliche Konventionen
 - **Helm-Chart**: `starrocks/kube-starrocks` Version `1.11.4` (verifiziert)
@@ -234,12 +242,33 @@ Spark Operator (`sparkoperator.k8s.io/v1beta2`).
 ## 7. ./lakekeeper/
 
 ### Status
-Leer. Konzept folgt.
+Helm-Deployment + OpenFGA-Authorizer + Role-Sync-Sidecar vorhanden; MCP-Server
+für OpenCode ergänzt. [`./lakekeeper/README.md`](./lakekeeper/README.md) ist die
+Single Source of Truth für das Deployment.
+
+### Inhalt (Top-Level)
+- [`./lakekeeper/README.md`](./lakekeeper/README.md) — Deployment-Reihenfolge, OpenFGA-Setup, Role-Sync-Sidecar
+- `openfga/` — Helm-Values für den OpenFGA-Authorizer-Dienst
+- `role-sync/` — Keycloak→Lakekeeper Role-Sync (`sync.py` + ConfigMap)
+- `cedar/` — inaktiv; Referenz für eine spätere Lakekeeper+-Evaluierung
+- `values-dev.yaml` / `values-prod.yaml` — Lakekeeper-Helm-Overrides
+
+### Inhalt (./lakekeeper/mcp/)
+- [`./lakekeeper/mcp/server.py`](./lakekeeper/mcp/server.py) — eigener MCP-Server:
+  liefert OpenCode inhaltliche Catalog-Metadaten (Namespaces, Tabellen-Schema +
+  Kommentare, Partition-Spec, Snapshots) — kein Catalog-Management
+- [`./lakekeeper/mcp/README.md`](./lakekeeper/mcp/README.md) — Offline-Setup
+  (Wheels → Nexus → uv → opencode.json) + Code-Aufbau zum eigenständigen Erweitern
+- [`./lakekeeper/mcp/opencode-commands.md`](./lakekeeper/mcp/opencode-commands.md) —
+  Kurz-Notiz: wiederkehrende Analyse-Abläufe als OpenCode-Slash-Command, mit Beispiel
+
+### Verbindliche Konventionen
+- MCP-Server ist **inhaltliche Discovery, kein Management** — die Tools bleiben
+  read-only (`list_namespaces`, `list_tables`, `describe_table`, `list_snapshots`)
+- MCP-Auth: eigener Keycloak-Client (`svc-opencode-mcp`), **nicht** der
+  Role-Sync-Client `svc-lakekeeper-sync`
 
 ### Geplanter Inhalt
-- Helm-Deployment des Lakekeeper-Servers
-- OIDC-Integration (mit `./oidc/`)
-- Permissions-Modell pro Namespace (`bronze.*`, `silver.*`, `gold.*`, `serving.*`, `mart.*`)
 - Backup-Policy für Lakekeeper-DB (Postgres)
 
 ### Bekannte Constraints

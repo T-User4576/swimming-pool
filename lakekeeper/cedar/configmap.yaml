@@ -1,3 +1,5 @@
+# INAKTIV — nur mit Lakekeeper+ (kommerziell, vakamo.com) verwendbar.
+# Für Evaluierung aufbewahrt. Aktiver Authorizer: OpenFGA (siehe ../openfga/).
 apiVersion: v1
 kind: ConfigMap
 metadata:
