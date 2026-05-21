@@ -52,6 +52,21 @@ uv run --with mcp-server-starrocks mcp-server-starrocks --help
 Beim ersten Aufruf lädt uv die Pakete von Nexus und cached sie lokal.
 Danach funktioniert es offline.
 
+### Wo landen die Dependencies?
+
+`uv run --with <paket>` legt **kein venv im Projekt** an. Stattdessen:
+
+- Resolve gegen den Nexus-Index, dann ephemerer, **gecachter** venv unter
+  `~/.cache/uv/` (genauer Pfad via `uv cache dir`).
+- Zweiter Aufruf mit identischen `--with`-Argumenten = Cache-Hit, keine
+  Downloads, kein Rebuild — Start praktisch instantan.
+- Updates kommen **nicht** automatisch. Neue Version ziehen:
+  `uv cache clean mcp-server-starrocks` oder Version inline pinnen
+  (`--with 'mcp-server-starrocks==X.Y.Z'`).
+
+Damit ist kein Out-of-band-Install nötig — der komplette Setup-Zustand
+steht in `opencode.json` + `~/.config/uv/uv.toml`.
+
 ---
 
 ## 4. opencode.json
