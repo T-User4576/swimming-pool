@@ -1,14 +1,14 @@
 -- ============================================================================
--- Resource Groups fuer Workload-Isolation
+-- Resource groups for workload isolation.
 -- ============================================================================
--- Ziel: BI-Heavy-Queries oder ETL-Jobs duerfen keine API-Latenzen toeten.
--- Anwendung: Bei >500 parallelen Usern und gemischtem Workload Pflicht.
+-- Goal: BI heavy queries and ETL jobs must not kill API latencies.
+-- When to use: mandatory at >500 parallel users with mixed workload.
 --
--- Regel-Matching: Reihenfolge der Properties (TO-Klausel) bestimmt Zuordnung.
--- Erste passende Regel gewinnt.
+-- Rule matching: property order (TO clause) decides assignment.
+-- First matching rule wins.
 
 -- ----------------------------------------------------------------------------
--- API-Workload (Customer-facing Dashboards, niedrige Latenz)
+-- API workload (customer-facing dashboards, low latency).
 -- ----------------------------------------------------------------------------
 CREATE RESOURCE GROUP rg_api
 TO (user='svc_api')
@@ -23,7 +23,7 @@ WITH (
 );
 
 -- ----------------------------------------------------------------------------
--- BI-Workload (interne Analysten, laengere Queries OK)
+-- BI workload (internal analysts, longer queries OK).
 -- ----------------------------------------------------------------------------
 CREATE RESOURCE GROUP rg_bi
 TO (user='bi_team')
@@ -35,7 +35,7 @@ WITH (
 );
 
 -- ----------------------------------------------------------------------------
--- ETL/MV-Refresh (Spark/Argo-getrieben, asynchron)
+-- ETL / MV refresh (Spark/Argo driven, asynchronous).
 -- ----------------------------------------------------------------------------
 CREATE RESOURCE GROUP rg_etl
 TO (user='svc_etl')
@@ -47,9 +47,9 @@ WITH (
 );
 
 -- ----------------------------------------------------------------------------
--- Verifikation
+-- Verification.
 -- ----------------------------------------------------------------------------
 SHOW RESOURCE GROUPS ALL;
 
--- Active Resource Group der eigenen Session zeigen
+-- Show the active resource group of the current session.
 -- SELECT current_resource_group();

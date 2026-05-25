@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "interceptor.fullname" . }}
+  labels:
+    {{- include "interceptor.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "interceptor.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "interceptor.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Forces a pod rollout when nginx.conf in the ConfigMap changes —
+        # otherwise kubelet keeps the old version in RAM.
+        checksum/nginx-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        # ---------------------------------------------------------------
+        # nginx — terminates {{ .Values.service.port }}, proxy -> lakekeeper:8181,
+        # mirror (fire-and-forget) -> 127.0.0.1:8200.
+        # ---------------------------------------------------------------
+        - name: nginx
+          image: "{{ .Values.nginx.image.repository }}:{{ .Values.nginx.image.tag }}"
+          imagePullPolicy: {{ .Values.nginx.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8181
+          securityContext:
+            {{- toYaml .Values.nginx.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            # /tmp must be writable (nginx places pid, client_body,
+            # proxy_temp there — see nginx.conf).
+            - name: nginx-tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /_nginx_health
+              port: 8181
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_nginx_health
+              port: 8181
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.nginx.resources | nindent 12 }}
+
+        # ---------------------------------------------------------------
+        # role-sync — verifies the user JWT, assigns Lakekeeper roles.
+        # ---------------------------------------------------------------
+        - name: role-sync
+          image: "{{ .Values.roleSync.image.repository }}:{{ .Values.roleSync.image.tag }}"
+          imagePullPolicy: {{ .Values.roleSync.image.pullPolicy }}
+          ports:
+            - name: receiver
+              containerPort: 8200
+          securityContext:
+            {{- toYaml .Values.roleSync.securityContext | nindent 12 }}
+          env:
+            - name: KEYCLOAK_URL
+              value: {{ .Values.roleSync.keycloak.url | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.roleSync.keycloak.realm | quote }}
+            # KEYCLOAK_CLIENT_ID + KEYCLOAK_CLIENT_SECRET come via envFrom
+            # from `roleSync.credentialsSecret` (single source of truth
+            # for the service-account identity).
+            - name: KEYCLOAK_AUDIENCE
+              value: {{ .Values.roleSync.keycloak.audience | quote }}
+            # Short service name suffices (same namespace, CoreDNS search).
+            - name: LAKEKEEPER_URL
+              value: "http://lakekeeper:8181"
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ .Values.roleSync.groupsClaim | quote }}
+            - name: LISTEN_PORT
+              value: "8200"
+            # Mapping from values.yaml -> ROLE_MAPPING_<ROLE>=<comma-list>.
+            {{- range $role, $groups := .Values.roleSync.roleMapping }}
+            - name: ROLE_MAPPING_{{ $role }}
+              value: {{ join "," $groups | quote }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.roleSync.credentialsSecret }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8200
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.roleSync.resources | nindent 12 }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "interceptor.fullname" . }}-nginx
+        - name: nginx-tmp
+          emptyDir: {}

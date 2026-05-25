@@ -1,5 +1,5 @@
-# INAKTIV — nur mit Lakekeeper+ (kommerziell, vakamo.com) verwendbar.
-# Für Evaluierung aufbewahrt. Aktiver Authorizer: OpenFGA (siehe ../openfga/).
+# INACTIVE — only usable with Lakekeeper+ (commercial, vakamo.com).
+# Kept for evaluation. Active authorizer: OpenFGA (see ../openfga/).
 apiVersion: v1
 kind: ConfigMap
 metadata:

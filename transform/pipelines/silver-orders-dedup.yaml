@@ -1,16 +1,16 @@
 # =============================================================================
-# Beispiel-Pipeline: Bronze -> Silver, Deduplizierung + Spalten-Mapping
+# Example pipeline: bronze -> silver, dedup + column mapping.
 # =============================================================================
-# Bereinigt Roh-Bestellungen: dedupliziert auf order_id (neueste Version je
-# Bestellung anhand UPDATED_AT), benennt Spalten auf die Silver-Konvention um,
-# typisiert via Schema-Enforcement. Schreibt idempotent per overwrite_partitions.
-# Spec-Schema-Referenz: ../transform-spec.md
+# Cleans raw orders: deduplicates on order_id (newest version per order via
+# UPDATED_AT), renames columns to the silver convention, types via schema
+# enforcement. Writes idempotently via overwrite_partitions.
+# Spec schema reference: ../transform-spec.md
 # =============================================================================
 
 name: silver-orders-dedup
 description: >
-  Bronze-Rohbestellungen deduplizieren und auf die Silver-Namens- und
-  Typkonvention bringen.
+  Deduplicate bronze raw orders and project them onto the silver naming
+  and typing convention.
 
 source:
   type: iceberg
@@ -34,7 +34,7 @@ steps:
   - type: dedup
     keys: [ID]
     order_by:
-      - { column: UPDATED_AT, dir: desc }   # behält die neueste Zeile je ID
+      - { column: UPDATED_AT, dir: desc }   # keep the newest row per ID
 
   - type: rename
     columns:

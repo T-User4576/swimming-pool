@@ -1,0 +1,27 @@
+# Source-Files, die zum Image-Build / zur lokalen Doku gehören, aber nicht
+# ins helm-package-Tarball sollen.
+Dockerfile
+interceptor.py
+README.md
+secret.example.yaml
+values-dev.yaml
+values-prod.yaml
+
+# Standard-Helm-Ignores
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+*.tmproj
+.vscode/

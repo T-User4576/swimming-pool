@@ -8,45 +8,45 @@ metadata:
 data:
   cn.conf: |
     # ========================================================================
-    # StarRocks CN Konfiguration (Shared-Data Mode)
+    # StarRocks CN configuration (shared-data mode).
     # ========================================================================
-    # WICHTIG: configMapInfo ersetzt die Chart-Default-Config komplett.
-    # Standard-Ports muessen daher explizit hier stehen -- Operator-Services
-    # und Health-Probes mappen auf genau diese Werte.
+    # IMPORTANT: configMapInfo replaces the chart default config entirely.
+    # Standard ports must therefore be set explicitly here — operator
+    # services and health probes map onto exactly these values.
 
-    # Standard-Ports (entsprechen Chart-Default und Operator-Service-Mapping)
+    # Standard ports (match the chart defaults and operator service mapping).
     thrift_port = 9060
     webserver_port = 8040
     heartbeat_service_port = 9050
     brpc_port = 8060
 
-    # Performance-Hebel #1: Datacache (Block Cache auf lokaler NVMe)
+    # Performance lever #1: datacache (block cache on local NVMe).
     datacache_enable = true
     datacache_disk_path = /opt/starrocks/cn/storage/datacache
-    datacache_disk_size = 3000000000000     # 3 TB (= ~75 % der 4 TB NVMe)
-    datacache_mem_size = 21474836480        # 20 GB Hot-Tier in RAM
+    datacache_disk_size = 3000000000000     # 3 TB (~75 % of the 4 TB NVMe)
+    datacache_mem_size = 21474836480        # 20 GB hot tier in RAM
     datacache_auto_adjust_enable = true
 
-    # Iceberg-Metadata Cache (Manifest, Snapshot, Schema)
+    # Iceberg metadata cache (manifest, snapshot, schema).
     enable_iceberg_metadata_cache = true
     iceberg_table_cache_expire_sec = 86400
     iceberg_table_cache_num = 1000
 
-    # Query Execution
+    # Query execution.
     chunk_size = 4096
     pipeline_dop = 0                        # 0 = auto = vCPU count
     enable_async_io = true
 
-    # Memory
+    # Memory.
     mem_limit = 90%
     storage_page_cache_limit = 20%
     disable_storage_page_cache = false
 
-    # Network / IO
+    # Network / IO.
     brpc_socket_max_unwritten_bytes = 1073741824
     transmit_compression_type = LZ4
 
-    # Logging
+    # Logging.
     sys_log_level = INFO
     sys_log_roll_num = 10
     sys_log_delete_age = 7d

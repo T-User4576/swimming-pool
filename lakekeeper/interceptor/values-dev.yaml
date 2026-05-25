@@ -1,0 +1,21 @@
+# Dev override for the lakekeeper-interceptor chart.
+# Layered over the defaults via `helm upgrade -f values-dev.yaml`.
+#
+# Prerequisite: secret `lakekeeper-role-sync-credentials` with
+# KEYCLOAK_CLIENT_SECRET (see secret.example.yaml) exists in the namespace.
+
+roleSync:
+  image:
+    # TODO: adjust — dev registry/tag.
+    repository: REGISTRY/lakekeeper-role-sync
+    tag: "0.1.0"
+  keycloak:
+    url: "https://keycloak.dev.example.com"
+    realm: "lakehouse"
+    audience: "lakekeeper"
+  roleMapping:
+    ADMIN:
+      - AbteilungIT
+      - AbteilungCompliance
+    WORKER:
+      - AbteilungData

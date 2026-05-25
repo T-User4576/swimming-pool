@@ -1,14 +1,14 @@
 # =============================================================================
-# Beispiel-Pipeline: Silver -> Gold, Aggregation
+# Example pipeline: silver -> gold, aggregation.
 # =============================================================================
-# Tages-Umsatz pro Kunde aus den bereinigten Silver-Orders. Filtert stornierte
-# Bestellungen, leitet order_day ab, aggregiert. Schreibt idempotent per
-# overwrite_partitions. Spec-Schema-Referenz: ../transform-spec.md
+# Daily revenue per customer from the cleaned silver orders. Filters
+# cancelled orders, derives order_day, aggregates. Writes idempotently via
+# overwrite_partitions. Spec schema reference: ../transform-spec.md
 # =============================================================================
 
 name: gold-revenue-daily
 description: >
-  Tages-Umsatz je Kunde aus lake.silver.orders.
+  Daily revenue per customer from lake.silver.orders.
 
 source:
   type: iceberg

@@ -1,19 +1,19 @@
 -- ============================================================================
--- External Iceberg Catalog gegen Lakekeeper (REST)
+-- External Iceberg catalog against Lakekeeper (REST).
 -- ============================================================================
--- Ausfuehrung: einmalig nach Cluster-Bootstrap, als Cluster-Admin (root o.ae.)
--- Voraussetzungen:
---   - Lakekeeper laeuft erreichbar unter dem konfigurierten URI
---   - MinIO-Credentials sind dem CN bekannt (via Helm-Secret -- siehe
---     starrocks/secrets/starrocks-s3-credentials.example.yaml)
---   - StarRocks Version >= 3.3 (REST Catalog stabil)
+-- Run once after cluster bootstrap, as cluster admin (root or equivalent).
+-- Prerequisites:
+--   - Lakekeeper is reachable at the configured URI.
+--   - MinIO credentials are known to the CN (via Helm secret — see
+--     starrocks/secrets/starrocks-s3-credentials.example.yaml).
+--   - StarRocks version >= 3.3 (REST catalog stable).
 --
--- Hinweis: Auth/OIDC fuer Lakekeeper kommt im separaten /oidc-Plan.
--- Hier zunaechst Basic-Setup mit Service-Token (Token via SealedSecret in
--- Production, hier Platzhalter).
+-- Note: Auth/OIDC for Lakekeeper is covered in the separate /oidc plan.
+-- Basic setup with a service token first (token via SealedSecret in
+-- production, placeholder here).
 
 CREATE EXTERNAL CATALOG IF NOT EXISTS lake
-COMMENT 'Iceberg Lakehouse via Lakekeeper'
+COMMENT 'Iceberg lakehouse via Lakekeeper'
 PROPERTIES (
   "type" = "iceberg",
   "iceberg.catalog.type" = "rest",
@@ -22,7 +22,7 @@ PROPERTIES (
   -- "iceberg.catalog.oauth2-server-uri" = "<idp-token-endpoint>",
   -- "iceberg.catalog.credential" = "<client_id>:<client_secret>",
 
-  -- S3 Backend (MinIO im Cluster)
+  -- S3 backend (MinIO in-cluster).
   "aws.s3.endpoint" = "http://minio.minio.svc.cluster.local:9000",
   "aws.s3.enable_path_style_access" = "true",
   "aws.s3.region" = "us-east-1",
@@ -30,10 +30,10 @@ PROPERTIES (
   "aws.s3.secret_key" = "<from-secret>"
 );
 
--- Verifikation
+-- Verification.
 SHOW CATALOGS;
 SET CATALOG lake;
 SHOW DATABASES;
 
--- Beispiel-Query gegen Iceberg-Tabelle (anpassen)
+-- Example query against an Iceberg table (adjust to your data).
 -- SELECT count(*) FROM lake.gold.orders;

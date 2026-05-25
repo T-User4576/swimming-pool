@@ -1,13 +1,15 @@
-# StarRocks Production Helm Values
+# StarRocks production Helm values.
 # Chart: starrocks/kube-starrocks
-# Profil: 10-100 TB Hot Layer, >500 User, >100 QPS, Shared-Data Mode
+# Profile: 10-100 TB hot layer, >500 users, >100 QPS, shared-data mode.
 #
-# Vorbedingungen:
-#   - Namespace 'starrocks' existiert
-#   - Secret 'starrocks-s3-credentials' existiert (siehe secrets/)
-#   - ConfigMaps 'starrocks-fe-config' und 'starrocks-cn-config' deployed
-#   - StorageClass 'fast-ssd' (FE-Meta) und 'local-nvme' (CN-Cache) verfügbar
-#   - Worker-Nodes mit lokaler NVMe sind mit Label 'starrocks.io/cache=nvme' versehen
+# Prerequisites:
+#   - Namespace 'starrocks' exists.
+#   - Secret 'starrocks-s3-credentials' exists (see secrets/).
+#   - ConfigMaps 'starrocks-fe-config' and 'starrocks-cn-config' deployed.
+#   - StorageClasses 'fast-ssd' (FE meta) and 'local-nvme' (CN cache)
+#     available.
+#   - Worker nodes with local NVMe carry the label
+#     'starrocks.io/cache=nvme'.
 
 nameOverride: starrocks
 timeZone: Europe/Berlin
@@ -50,9 +52,10 @@ starrocksFESpec:
   configMapInfo:
     configMapName: starrocks-fe-config
     resolveKey: fe.conf
-  # JAVA_OPTS in configmap-fe.yaml (fe.conf) gepflegt -- nicht hier duplizieren
-  # FE legt den Iceberg-Metadata-Cache-Ordner nicht selbst an.
-  # Pfad muss zu iceberg_metadata_cache_disk_path in configmap-fe.yaml passen.
+  # JAVA_OPTS is maintained in configmap-fe.yaml (fe.conf) — do not
+  # duplicate here.
+  # FE does not create the Iceberg metadata-cache directory itself.
+  # Path must match iceberg_metadata_cache_disk_path in configmap-fe.yaml.
   initContainers:
     - name: init-iceberg-cache-dir
       image: busybox:1.36
@@ -76,10 +79,10 @@ starrocksFESpec:
           topologyKey: kubernetes.io/hostname
 
 starrocksCnSpec:
-  # WICHTIG: Bei aktivem autoScalingPolicy KEIN replicas-Feld setzen.
-  # Der Operator setzt replicas dann auf null und HPA übernimmt die Kontrolle.
-  # (Quelle: offizielles Chart-values.yaml v1.11.4 — Kommentar zu CN-Replicas)
-  # replicas: 6   <- nur setzen wenn autoScalingPolicy unten entfernt/auskommentiert
+  # IMPORTANT: with autoScalingPolicy active, do NOT set a `replicas`
+  # field. The operator then nulls replicas and HPA takes control.
+  # (Source: official chart values.yaml v1.11.4 — comment on CN replicas.)
+  # replicas: 6   <- only set if autoScalingPolicy below is removed/commented out
   image:
     repository: starrocks/cn-ubuntu
     tag: "3.3.5"
@@ -114,15 +117,15 @@ starrocksCnSpec:
                   operator: In
                   values: [cn]
             topologyKey: kubernetes.io/hostname
-  # HPA für CN -- Voraussetzungen:
-  #   - metrics-server im Cluster (kubectl top nodes muss funktionieren)
-  #   - K8s-Version >= 1.23 (autoscaling/v2 GA)
-  # Hinweis: FE wird bewusst NICHT skaliert (Raft-Quorum mit 3 Replicas fix).
+  # HPA for CN — prerequisites:
+  #   - metrics-server in the cluster (kubectl top nodes must work).
+  #   - K8s version >= 1.23 (autoscaling/v2 GA).
+  # Note: FE is deliberately NOT scaled (raft quorum fixed at 3 replicas).
   autoScalingPolicy:
     version: v2
     minReplicas: 6
     maxReplicas: 12
-    # horizontal-pod-autosacler
+    # horizontal-pod-autoscaler
     hpaPolicy:
       metrics:
         - type: Resource
@@ -145,12 +148,12 @@ starrocksCnSpec:
               value: 1
               periodSeconds: 60
         scaleDown:
-          # Konservativ: vermeidet Pod-Termination mitten im Query-Run.
-          # Cache-Verlust bei Scale-Down kostet Re-Warmup-Zeit.
+          # Conservative: avoids pod termination mid-query.
+          # Cache loss on scale-down costs re-warmup time.
           stabilizationWindowSeconds: 600
           selectPolicy: Disabled
 
-# ServiceMonitor für Prometheus (cluster muss kube-prometheus-stack haben)
+# ServiceMonitor for Prometheus (cluster must run kube-prometheus-stack).
 metrics:
   serviceMonitor:
     enabled: true
@@ -159,38 +162,38 @@ metrics:
       release: prometheus
 
 # =============================================================================
-# Multi-Warehouse — zukünftige Erweiterung, nicht initial aktiviert
+# Multi-warehouse — future extension, not enabled initially.
 # =============================================================================
-# Trigger-Punkte für die Aktivierung:
+# Triggers for enabling it:
 #
-#   1) API-p95 degradiert spürbar, sobald nachts ETL/MV-Refresh läuft
-#      → eigenes wh_etl trennen
-#   2) BI-Heavy-Queries räumen den heißen Cache der API-Lookup-Tabellen aus
-#      → eigenes wh_api für Customer-facing Workloads
-#   3) Ein einzelner Tenant/Service braucht garantierte Compute-Resources,
-#      die durch Resource Groups nicht ausreichend isoliert sind
+#   1) API p95 degrades visibly once nightly ETL/MV refresh runs
+#      -> split off a dedicated wh_etl.
+#   2) BI heavy queries evict the hot cache of the API lookup tables
+#      -> dedicated wh_api for customer-facing workloads.
+#   3) A single tenant/service needs guaranteed compute that resource
+#      groups cannot isolate well enough.
 #
-# Vorher: mit Default-Warehouse + Resource Groups (rg_api/rg_bi/rg_etl) weiter-
-# fahren. Multi-Warehouse erhöht Operations-Komplexität (mehrfacher Cache-
-# Footprint, mehr Pods, eigene HPA pro Warehouse) und sollte nur eingeführt
-# werden, wenn die Trigger oben tatsächlich messbar sind.
+# Until then: stay on the default warehouse + resource groups
+# (rg_api/rg_bi/rg_etl). Multi-warehouse increases operational complexity
+# (multiplied cache footprint, more pods, separate HPA per warehouse) and
+# should only be introduced once the triggers above are measurable.
 #
 # -----------------------------------------------------------------------------
-# Verifiziert für kube-starrocks Helm-Chart 1.11.4
+# Verified for kube-starrocks Helm chart 1.11.4.
 # -----------------------------------------------------------------------------
-# Die Helm-Values dieses Charts enthalten KEIN Multi-Warehouse-Feld. Multi-
-# Warehouse wird über die separate CRD 'StarRocksWarehouse' realisiert, die
-# vom Operator in 1.11.4 mit installiert wird (verifizieren mit:
+# The chart values DO NOT expose a multi-warehouse field. Multi-warehouse
+# is realized via the separate CRD 'StarRocksWarehouse', installed by the
+# operator in 1.11.4 (verify with:
 # `kubectl get crd | grep starrockswarehouses`).
 #
-# Pattern: Cluster bleibt via diesem Helm-Release gemanagt. Zusätzliche
-# Warehouses werden als eigene Manifeste appliziert, alle referenzieren
-# denselben StarRocksCluster (Feld: spec.starRocksCluster).
+# Pattern: the cluster stays managed via this Helm release. Additional
+# warehouses are applied as their own manifests, all referencing the same
+# StarRocksCluster (field: spec.starRocksCluster).
 #
 # -----------------------------------------------------------------------------
-# Beispiel-Manifest für ein Warehouse (in eigene Datei legen, nicht via Helm)
+# Example manifest for a warehouse (own file, not via Helm).
 # -----------------------------------------------------------------------------
-# Datei z.B. starrocks/warehouses/wh-api.yaml, applizieren mit:
+# e.g. starrocks/warehouses/wh-api.yaml, apply with:
 #   kubectl apply -n starrocks -f starrocks/warehouses/wh-api.yaml
 #
 # apiVersion: starrocks.com/v1
@@ -199,16 +202,16 @@ metrics:
 #   name: wh-api
 #   namespace: starrocks
 # spec:
-#   # MUSS auf den Namen des StarRocksCluster zeigen, der von diesem Helm-
-#   # Release angelegt wird (Default: 'kube-starrocks' bzw. nameOverride oben).
+#   # MUST point at the StarRocksCluster created by this Helm release
+#   # (default: 'kube-starrocks' or the nameOverride above).
 #   starRocksCluster: starrocks
 #   template:
 #     image:
 #       repository: starrocks/cn-ubuntu
 #       tag: "3.3.5"
-#     # replicas: NICHT setzen, da autoScalingPolicy unten aktiv ist
-#     # (Operator nullt replicas, HPA übernimmt). Bei einem Warehouse OHNE
-#     # autoScalingPolicy stattdessen 'replicas: N' explizit angeben.
+#     # replicas: do NOT set when autoScalingPolicy is active below
+#     # (operator nulls replicas, HPA takes over). For a warehouse WITHOUT
+#     # autoScalingPolicy, set 'replicas: N' explicitly instead.
 #     resources:
 #       requests: { cpu: "16", memory: "64Gi" }
 #       limits:   { cpu: "32", memory: "128Gi" }
@@ -241,27 +244,27 @@ metrics:
 #         behavior:
 #           scaleDown: { selectPolicy: Disabled }
 #
-# Analog dazu wh-bi.yaml und wh-etl.yaml — gleicher 'starRocksCluster',
-# unterschiedliche Sizing-Profile. wh_etl könnte minReplicas: 0 haben für
-# Scale-to-Zero off-peak.
+# Analogously wh-bi.yaml and wh-etl.yaml — same 'starRocksCluster',
+# different sizing profiles. wh_etl could have minReplicas: 0 for
+# scale-to-zero off-peak.
 #
 # -----------------------------------------------------------------------------
-# Nach dem Apply: SQL-Setup
+# After apply: SQL setup.
 # -----------------------------------------------------------------------------
 #
-#   SHOW WAREHOUSES;     -- wh_api / wh_bi / wh_etl müssen gelistet sein
+#   SHOW WAREHOUSES;     -- wh_api / wh_bi / wh_etl must be listed.
 #
 #   CREATE WAREHOUSE wh_api  PROPERTIES ("size" = "small");
 #   CREATE WAREHOUSE wh_bi   PROPERTIES ("size" = "medium");
 #   CREATE WAREHOUSE wh_etl  PROPERTIES ("size" = "large");
-#   -- ggf. nicht nötig, wenn die Operator-CR den Warehouse-Eintrag
-#   -- automatisch im Cluster registriert. Erst SHOW WAREHOUSES prüfen.
+#   -- May not be needed if the operator CR registers the warehouse entry
+#   -- in the cluster automatically. Check with SHOW WAREHOUSES first.
 #
 #   ALTER USER 'svc_api' SET PROPERTY 'default_warehouse' = 'wh_api';
 #   ALTER USER 'bi_team' SET PROPERTY 'default_warehouse' = 'wh_bi';
 #   ALTER USER 'svc_etl' SET PROPERTY 'default_warehouse' = 'wh_etl';
 #
-# Kontrolle: pro Warehouse laufen eigene CN-Pods, eigener Cache, eigene
-# Failure-Domain. Resource Groups bleiben zusätzlich aktiv (limitieren
-# pro User innerhalb eines Warehouse weiterhin per Quota).
+# Outcome: each warehouse runs its own CN pods, its own cache, its own
+# failure domain. Resource groups stay active on top (still limit
+# per-user quota within a warehouse).
 # =============================================================================

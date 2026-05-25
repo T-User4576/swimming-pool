@@ -1,32 +1,42 @@
-# OpenFGA Helm-Values (Chart: openfga/openfga).
+# OpenFGA Helm values (chart: openfga/openfga, verified against 0.3.5).
 #
-# Helm-Repo hinzufügen:
+# Add the Helm repo:
 #   helm repo add openfga https://openfga.github.io/helm-charts
 #   helm repo update
 #
-# Deployment:
-#   kubectl apply -f lakekeeper/openfga/secret.yaml          # echtes Secret zuerst
+# Deploy:
+#   kubectl apply -f lakekeeper/openfga/secret.yaml          # real secret first
 #   helm upgrade --install openfga openfga/openfga \
 #     --namespace lakekeeper \
 #     --values lakekeeper/openfga/values.yaml \
-#     --atomic --wait --timeout 5m
+#     --timeout 5m
+#
+# DO NOT use `--atomic --wait` here: the chart's DB-migration runs as a
+# `post-install` hook (a separate Job), while the OpenFGA pod's
+# `wait-for-migration` init container waits for exactly that Job. With
+# --wait Helm blocks on Pod-Ready before triggering post-install hooks,
+# so the init container never finds the Job and the install deadlocks
+# until the --timeout fires (and --atomic then rolls everything back).
+# Without --wait the hook fires immediately, the Job runs, the init
+# container finds it, and the pod comes up.
 
 replicaCount: 1   # prod: 2
 
 datastore:
   engine: postgres
-  # Secret muss OPENFGA_DATASTORE_URI als Key enthalten.
+  # Secret must carry the URI under the key `uri` (chart 0.3.5; the
+  # chart maps it onto OPENFGA_DATASTORE_URI internally).
   # Format: postgres://user:pass@host:5432/openfga?sslmode=disable
   uriSecret: openfga-postgres-uri
 
 service:
   grpc:
-    port: 8081   # Lakekeeper verbindet sich auf diesen Port
+    port: 8081   # Lakekeeper connects on this port
   http:
-    port: 8080   # Admin-API / Playground
+    port: 8080   # admin API / playground
 
-# Playground im Dev nützlich, in Prod deaktivieren:
+# Playground is handy in dev, disable in prod:
 playground:
   enabled: true   # prod: false
 
-# Liveness / Readiness — Defaults aus dem Chart sind ausreichend.
+# Liveness / readiness — chart defaults are sufficient.

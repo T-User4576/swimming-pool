@@ -1,31 +1,31 @@
 # =============================================================================
-# Beispiel-Pipeline: S3-Datei -> Bronze, CSV-Ingest
+# Example pipeline: S3 file -> bronze, CSV ingest.
 # =============================================================================
-# Liest eine täglich angelieferte CSV-Datei aus dem Landing-Bucket, erzwingt
-# das Eingangs-Schema und schreibt idempotent per overwrite_partitions in die
-# Bronze-Schicht. Kein Step nötig — reine Format-Konvertierung (CSV -> Iceberg).
-# Spec-Schema-Referenz: ../transform-spec.md
+# Reads a daily delivered CSV file from the landing bucket, enforces the
+# input schema, and writes idempotently via overwrite_partitions into the
+# bronze layer. No steps needed — pure format conversion (CSV -> Iceberg).
+# Spec schema reference: ../transform-spec.md
 # =============================================================================
 
 name: bronze-orders-ingest
 description: >
-  CSV-Lieferung aus s3a://landing/orders/ einlesen und als Iceberg-Tabelle
-  in lake.bronze.orders_raw ablegen. Schema wird per enforce erzwungen,
-  damit Type-Fehler in der Lieferung sofort scheitern.
+  Read CSV delivery from s3a://landing/orders/ and land it as an Iceberg
+  table in lake.bronze.orders_raw. The schema is enforced so type errors
+  in the delivery fail immediately.
 
 source:
   type: file
-  path: s3a://landing/orders/            # Prefix: alle Dateien im Ordner
+  path: s3a://landing/orders/            # prefix: all files in the folder
   format: csv
   options:
     header: "true"
     delimiter: ";"
-    # .gz-Kompression wird automatisch an der Datei-Endung erkannt —
-    # keine extra Option nötig.
+    # .gz compression is detected automatically from the file extension —
+    # no extra option required.
 
 schema:
-  mode: enforce                          # select + cast auf Soll-Schema; Extra-Spalten werden verworfen
-  on_missing_columns: error             # fehlende Pflicht-Spalten → Abbruch
+  mode: enforce                          # select + cast to target schema; extra columns are dropped
+  on_missing_columns: error             # missing required columns -> abort
   columns:
     - { name: order_id,    type: bigint,          nullable: false }
     - { name: customer_id, type: bigint,          nullable: false }
@@ -36,8 +36,8 @@ schema:
     - { name: updated_at,  type: timestamp }
     - { name: ingest_ts,   type: timestamp }
 
-# Keine steps — Schema-Enforcement durch den schema-Block oben
-# reicht; Bereinigung (Dedup, Filter) folgt in der Silver-Pipeline.
+# No steps — schema enforcement via the schema block above is enough;
+# cleanup (dedup, filter) follows in the silver pipeline.
 
 sink:
   type: iceberg

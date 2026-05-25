@@ -1,0 +1,137 @@
+# Default values for the lakekeeper-interceptor chart.
+#
+# Required overrides per environment:
+#   - roleSync.image.repository  (internal registry, no default)
+#   - roleSync.keycloak.url      (your Keycloak base URL)
+#   - roleSync.keycloak.realm
+#   - roleSync.keycloak.audience
+#   - roleSync.roleMapping       (group -> Lakekeeper role)
+#
+# Required prerequisite in the cluster (NOT part of this chart):
+#   Secret `{{ .Values.roleSync.credentialsSecret }}` with keys
+#   `KEYCLOAK_CLIENT_ID` + `KEYCLOAK_CLIENT_SECRET` (see
+#   secret.example.yaml). Both are mounted via envFrom into the pod.
+
+# Note: nginx.conf addresses the Lakekeeper service by its short name
+# (`server lakekeeper:8181`) — that works because this chart is deployed
+# into the same namespace as the Lakekeeper service (CoreDNS search
+# directive). Cross-namespace setup: fork nginx.conf and rewrite the
+# upstream to the FQDN (lakekeeper.<ns>.svc.cluster.local).
+
+replicaCount: 1
+
+# Pod-level defaults — applied to both containers.
+podSecurityContext: {}
+
+# Service in front of the interceptor pod. UI/ingress traffic enters here.
+service:
+  type: ClusterIP
+  port: 8181
+
+# Optional ingress in front of the interceptor service.
+#
+# IMPORTANT: NEVER point the ingress directly at the Lakekeeper service —
+# the receiver would then never see the user token and auto-assign would
+# not happen. Always go through this interceptor service.
+#
+# Example override (values-prod.yaml):
+#   ingress:
+#     enabled: true
+#     className: nginx
+#     annotations:
+#       cert-manager.io/cluster-issuer: letsencrypt-prod
+#     hosts:
+#       - host: lakekeeper.example.com
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#     tls:
+#       - secretName: lakekeeper-tls
+#         hosts:
+#           - lakekeeper.example.com
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: lakekeeper.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# --- nginx sidecar ---
+nginx:
+  image:
+    repository: nginxinc/nginx-unprivileged
+    tag: "1.27-alpine"
+    pullPolicy: IfNotPresent
+  # restricted PSS — image runs as UID 101 by default.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# --- Python receiver (role-sync) ---
+roleSync:
+  image:
+    # REQUIRED: internal registry + immutable tag. Image build via the
+    # Dockerfile in the chart root
+    # (`docker build -f interceptor/Dockerfile interceptor/`).
+    repository: REGISTRY/lakekeeper-role-sync
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  # restricted PSS — Dockerfile pins UID 10001.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # OIDC setup (required overrides). client_id lives alongside the
+  # client_secret in credentialsSecret (single source of truth for the
+  # service-account identity) — see secret.example.yaml.
+  keycloak:
+    url: "https://keycloak.example.com"
+    realm: "lakehouse"
+    audience: "lakekeeper"
+  # Name of the secret carrying KEYCLOAK_CLIENT_ID + KEYCLOAK_CLIENT_SECRET.
+  # Must exist BEFORE `helm install` — the chart references it via envFrom,
+  # it does not create it.
+  credentialsSecret: "lakekeeper-role-sync-credentials"
+
+  # Which claim the groups are read from.
+  groupsClaim: "groups"
+
+  # Group -> Lakekeeper role. Rendered into ROLE_MAPPING_<ROLE>=<comma-groups>
+  # env vars. Role names must exist in Lakekeeper (case-insensitive
+  # matching).
+  #
+  # Example: {ADMIN: ["AbteilungIT"], WORKER: ["AbteilungData"]}
+  roleMapping: {}
+

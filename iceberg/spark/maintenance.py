@@ -1,12 +1,11 @@
 # =============================================================================
-# Iceberg Maintenance — agnostischer PySpark Job
+# Iceberg maintenance — agnostic PySpark job
 # =============================================================================
-# Wird vom Argo CronWorkflow aufgerufen. Listet alle Iceberg-Tabellen im
-# Lakekeeper-Catalog, liest pro Tabelle die Maintenance-Properties (Konvention
-# siehe ../maintenance.md Abschnitt 9) und ruft die entsprechenden Spark-
-# Procedures auf.
+# Invoked by the Argo CronWorkflow. Lists all Iceberg tables in the Lakekeeper
+# catalog, reads the per-table maintenance properties (convention: see
+# ../maintenance.md section 9) and calls the matching Spark procedures.
 #
-# Properties-Schema (alle optional, mit Defaults):
+# Properties schema (all optional, with defaults):
 #   maintenance.compaction.enabled              [true]
 #   maintenance.compaction.window_days          [7]
 #   maintenance.compaction.target_file_size_bytes [536870912]
@@ -18,11 +17,11 @@
 #   maintenance.manifest.enabled                [true]
 #   maintenance.position_deletes.enabled        [false]
 #
-# Aufruf via spark-submit:
+# Invocation via spark-submit:
 #   spark-submit maintenance.py \
 #       --catalog lake \
 #       --jobs compaction,snapshot,orphan,manifest \
-#       [--namespaces gold,silver]   # optional Filter
+#       [--namespaces gold,silver]   # optional filter
 #       [--dry-run]
 # =============================================================================
 
@@ -58,20 +57,20 @@ DEFAULTS = {
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--catalog", required=True, help="Iceberg catalog name (Spark side, z.B. 'lake')")
+    p.add_argument("--catalog", required=True, help="Iceberg catalog name (Spark side, e.g. 'lake')")
     p.add_argument(
         "--jobs",
         default="compaction,snapshot,orphan,manifest",
-        help="Komma-separierte Liste: compaction,snapshot,orphan,manifest,position_deletes",
+        help="Comma-separated list: compaction,snapshot,orphan,manifest,position_deletes",
     )
-    p.add_argument("--namespaces", default="", help="Komma-separierte Namespace-Whitelist")
-    p.add_argument("--tables", default="", help="Komma-separierte Tabellen-Whitelist (db.table)")
+    p.add_argument("--namespaces", default="", help="Comma-separated namespace whitelist")
+    p.add_argument("--tables", default="", help="Comma-separated table whitelist (db.table)")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
 
 
 def get_session(catalog: str) -> SparkSession:
-    # Catalog-Config wird via spark-submit --conf gesetzt (siehe Argo-Workflow)
+    # Catalog config is set via spark-submit --conf (see Argo workflow).
     return (
         SparkSession.builder.appName(f"iceberg-maintenance-{catalog}")
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
@@ -114,7 +113,7 @@ def run_compaction(spark: SparkSession, fqn: str, props: dict, dry: bool) -> Non
     target_bytes = props["maintenance.compaction.target_file_size_bytes"]
     cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).strftime("%Y-%m-%d %H:%M:%S")
 
-    sort_order = props.get("write.sort-order")  # falls in Properties hinterlegt
+    sort_order = props.get("write.sort-order")  # if set in TBLPROPERTIES
     sort_clause = f", sort_order => '{sort_order}'" if sort_order else ""
     strategy = "sort" if sort_order else "binpack"
 
@@ -132,10 +131,10 @@ def run_compaction(spark: SparkSession, fqn: str, props: dict, dry: bool) -> Non
           )
         )
     """
-    # Hinweis: das WHERE oben ist illustrativ. In der Praxis muss die Filter-
-    # Spalte die Partition-Spalte der Tabelle sein. Das laesst sich aus
-    # SHOW PARTITIONS / system.partitions ableiten -- der echte Workflow
-    # sollte das pro Tabelle dynamisch bauen.
+    # Note: the WHERE above is illustrative. In practice the filter column
+    # must be the table's partition column. That can be derived from
+    # SHOW PARTITIONS / system.partitions — the real workflow should
+    # build this dynamically per table.
     log.info("[%s] compaction: strategy=%s window=%dd target=%sB", fqn, strategy, window_days, target_bytes)
     if dry:
         log.info("[%s] DRY-RUN, would execute:\n%s", fqn, sql)
@@ -180,7 +179,7 @@ def run_orphan(spark: SparkSession, fqn: str, props: dict, dry: bool) -> None:
         )
     """
     log.info("[%s] remove_orphan_files older_than=%s dry=%s", fqn, older_than, dry)
-    spark.sql(sql)   # remove_orphan_files unterstuetzt dry_run nativ
+    spark.sql(sql)   # remove_orphan_files supports dry_run natively
 
 
 def run_manifest_rewrite(spark: SparkSession, fqn: str, props: dict, dry: bool) -> None:

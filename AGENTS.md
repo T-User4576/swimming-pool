@@ -14,8 +14,17 @@ Markdown-Konzepte, Helm-Values, K8s-ConfigMaps/Manifeste, Argo-`WorkflowTemplate
 `CronWorkflow`-YAML, SQL und ein einzelner PySpark-Job. Es gibt **keinen Build,
 kein Lint, keine Test-Suite**. "Ausführen" heißt: auf einen Kubernetes-Cluster
 applien (`kubectl` / `helm` / `argo`); die vollständigen Deployment-Sequenzen
-stehen in den `README.md` der jeweiligen Subfolder. Repo-Sprache ist Deutsch —
-neue Doku und Kommentare ebenso.
+stehen in den `README.md` der jeweiligen Subfolder.
+
+**Sprache — zweigeteilt**:
+- **Deutsch** für Prosa-Doku: `README.md`, Architektur-/Design-`*.md`,
+  narrative Erklär-Dateien.
+- **Englisch** für Kommentare in Code- und Deployment-Artefakten: `*.py`,
+  `*.sh`, `*.sql`, `Dockerfile`, sowie Kommentare bzw. annotation-artige
+  Stringfelder in `values*.yaml`, Helm-Chart-Templates, K8s-Manifesten,
+  ConfigMaps, Secrets, Argo-Workflow-YAML und Pipeline-Specs.
+- Faustregel: liest ein Mensch es als Dokument → Deutsch; parst es ein Tool
+  bzw. liegt es direkt neben Code → Englisch.
 
 Dem "Single Test" am nächsten kommt ein Dry-Run des Maintenance-Jobs:
 `argo submit --from cronwf/iceberg-daily-maintenance -n argo -p dry-run=true -p namespaces=gold`
@@ -242,16 +251,21 @@ Spark Operator (`sparkoperator.k8s.io/v1beta2`).
 ## 7. ./lakekeeper/
 
 ### Status
-Helm-Deployment + OpenFGA-Authorizer + Role-Sync-Sidecar vorhanden; MCP-Server
-für OpenCode ergänzt. [`./lakekeeper/README.md`](./lakekeeper/README.md) ist die
-Single Source of Truth für das Deployment.
+Helm-Deployment + OpenFGA-Authorizer + Role-Sync via Token-Interceptor
+(eigenes Deployment vor dem Lakekeeper-Service) vorhanden; MCP-Server für
+OpenCode ergänzt. Tier-1-Live-Test (kiddie-pool/tier1-auth) ist grün —
+Auto-Assign über `lakekeeper-interceptor`-Route, direkter Service-Bypass
+für cluster-interne Service-Clients verifiziert.
+[`./lakekeeper/README.md`](./lakekeeper/README.md) ist die Single Source of
+Truth für das Deployment.
 
 ### Inhalt (Top-Level)
-- [`./lakekeeper/README.md`](./lakekeeper/README.md) — Deployment-Reihenfolge, OpenFGA-Setup, Role-Sync-Sidecar
-- `openfga/` — Helm-Values für den OpenFGA-Authorizer-Dienst
-- `role-sync/` — Keycloak→Lakekeeper Role-Sync (`sync.py` + ConfigMap)
+- [`./lakekeeper/README.md`](./lakekeeper/README.md) — Lakekeeper-Catalog-Deployment + OpenFGA, Verweis auf Interceptor-Chart
+- `openfga/` — Helm-Values + Secret-Vorlage für den OpenFGA-Authorizer
+- `interceptor/` — **eigenständiges Helm-Chart `lakekeeper-interceptor`**: Chart + Templates + Receiver-Source + Image-Build + Secret-Vorlage + eigene README (Single Source of Truth für den Interceptor)
+- `values-dev.yaml` — Lakekeeper-Helm-Overrides (reines Catalog-Setup). Prod-Werte bewusst zusammengelegt, solange sie sich von dev nicht unterscheiden; sobald eine echte Divergenz entsteht, eine `values-prod.yaml` daneben anlegen.
+- `upgrade.md` — Versions-Upgrade-Vorgehen + Stolpersteine
 - `cedar/` — inaktiv; Referenz für eine spätere Lakekeeper+-Evaluierung
-- `values-dev.yaml` / `values-prod.yaml` — Lakekeeper-Helm-Overrides
 
 ### Inhalt (./lakekeeper/mcp/)
 - [`./lakekeeper/mcp/server.py`](./lakekeeper/mcp/server.py) — eigener MCP-Server:
@@ -263,16 +277,43 @@ Single Source of Truth für das Deployment.
   Kurz-Notiz: wiederkehrende Analyse-Abläufe als OpenCode-Slash-Command, mit Beispiel
 
 ### Verbindliche Konventionen
-- MCP-Server ist **inhaltliche Discovery, kein Management** — die Tools bleiben
-  read-only (`list_namespaces`, `list_tables`, `describe_table`, `list_snapshots`)
-- MCP-Auth: eigener Keycloak-Client (`svc-opencode-mcp`), **nicht** der
-  Role-Sync-Client `svc-lakekeeper-sync`
+- **MCP-Server ist inhaltliche Discovery, kein Management** — Tools bleiben
+  read-only (`list_namespaces`, `list_tables`, `describe_table`, `list_snapshots`).
+  Eigener Keycloak-Client `svc-opencode-mcp`, **nicht** der Role-Sync-Client.
+- **Role-Sync = Token-Interceptor (eigenes Deployment), nicht Poller.**
+  nginx vor Lakekeeper spiegelt jeden Request an einen Python-Receiver, der
+  die `groups`-Claim aus dem User-JWT liest. `svc-lakekeeper-sync` braucht
+  daher **keine** IdP-Admin-Rechte (`view-users` etc.), nur `security_admin`
+  auf dem Lakekeeper-Default-Project (Schreibrechte auf Rollen-Assignments —
+  Server-Level kennt das seit v0.12 nicht mehr).
+- **Eigenes Deployment statt Sidecar**, weil das Lakekeeper-Chart Port-Namen
+  hartkodiert (`http`/8181); zwei Container mit gleichem Port-Namen
+  kollidieren und der Service zieht den ersten Treffer = Lakekeeper.
+- **Zwei Routen, klar getrennt:** `lakekeeper-interceptor:8181` für
+  UI/Ingress (Receiver sieht Token), `lakekeeper:8181` direkt für
+  Service-Clients (eigener `client_credentials`-Token, einmalig per
+  `security_admin` bootstrapped).
+- **Interceptor + Lakekeeper-Service im gleichen Namespace** — `nginx.conf`
+  nutzt den Service-Kurznamen `lakekeeper`. Cross-Namespace: nginx.conf-
+  Upstream auf den FQDN umschreiben.
+- **Receiver-Image vorgebaut** (`interceptor/Dockerfile`), weil `pip install`
+  zur Boot-Zeit mit restricted PSS (non-root, RO-FS) nicht geht.
+- **Service-Account-Identität (`KEYCLOAK_CLIENT_ID` + `KEYCLOAK_CLIENT_SECRET`)
+  liegt komplett im Secret** `lakekeeper-role-sync-credentials`, per `envFrom`
+  in den Receiver — Single Source of Truth, kein Split zwischen Secret + Values.
 
 ### Geplanter Inhalt
 - Backup-Policy für Lakekeeper-DB (Postgres)
 
 ### Bekannte Constraints
 - Lakekeeper macht **kein** automatisches Iceberg-Maintenance — siehe [`./iceberg/maintenance.md`](./iceberg/maintenance.md)
+- Lakekeeper-OSS persistiert `groups`-Claim **nicht** (Auto-Mapping geht nur
+  mit Cedar in Lakekeeper+) — deshalb das Interceptor-Deployment
+- `LAKEKEEPER__OPENID_ROLES_CLAIM` ist Cedar-only, in der OSS-Variante ohne
+  Wirkung
+- `/management/v1/info` ist authentifiziert aber nicht autorisiert — jeder
+  eingeloggte User darf Server-Metadaten lesen (Version, Authz-Backend,
+  Project-UUID). By Design; UI braucht es beim Boot.
 
 ---
 
@@ -404,6 +445,12 @@ statt aus dem Gedächtnis raten. Insbesondere:
 | Pushgateway für StarRocks- oder Spark-Service-Metriken | Pushgateway = Batch-Jobs; für Services scrape direkt (siehe `starrocks/prometheus.md`) |
 | Pattern D (`insertInto` / dynamic partition overwrite) im Transform-Runner-Sink | Geht an der Iceberg-`writeTo`-API vorbei; `overwrite_partitions` (Pattern B) nutzen |
 | Pipeline-Logik in `transform/spark/runner.py` hardcoden statt in die Spec | Bricht das config-getriebene Prinzip — der Runner bleibt generisch, Fachliches gehört in die YAML-Spec |
+| Keycloak-Admin-API (`view-users` / `GET /admin/realms/.../users/{id}/groups`) abfragen, um Gruppen eines Users zu erfahren | Die Gruppen stehen schon im User-JWT (`groups`-Claim) — sie aus dem IdP nachzuziehen kostet Admin-Rechte am IdP, Extra-Calls und einen Coupling-Pfad. Receiver liest aus dem Token, fertig. |
+| `security_admin` auf Server-Ebene (`/permissions/server/assignments`) zuweisen | Lakekeeper v0.12 kennt server-level nur `admin`/`operator`. `security_admin` ist Project-Level → `/permissions/project/assignments` (Default-Project) |
+| `pip install` zur Container-Boot-Zeit für Sidecar-Workloads in prod | Bricht restricted PSS (root-Schreibrechte nötig), kostet pypi-Roundtrip pro Restart, nicht Air-Gap-tauglich. Image vorbacken. |
+| `python:3.12-slim` o.ä. ohne expliziten `securityContext` in prod-Workloads | Default ist runAsRoot — bricht restricted PSS. Immer `runAsNonRoot: true` + fixe UID + RO-FS + caps drop. |
+| Token-Interceptor als Sidecar im Lakekeeper-Pod (via Chart-`extraContainers`) | Helm-Chart hat `containerPort: 8181` mit hartkodiertem Port-Namen `http` am Lakekeeper-Container; ein zweiter Container mit gleichem Port-Namen kollidiert → Service zieht den ersten Treffer (= Lakekeeper) → Interceptor wird umgangen. Eigenes Deployment + eigener Service nutzen. |
+| `LAKEKEEPER__LISTEN_PORT`-Shuffle (Lakekeeper auf 8182, nginx auf 8181) im selben Pod | Workaround für das Sidecar-Anti-Pattern oben — beim Splitt in zwei Pods entfällt der Shuffle, Lakekeeper bleibt auf Default 8181. |
 
 ---
 

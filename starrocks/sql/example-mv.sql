@@ -1,17 +1,18 @@
 -- ============================================================================
--- Materialized View Beispiel
+-- Materialized view example.
 -- ============================================================================
--- Zweck: Sub-Second-Antworten auf wiederkehrende Aggregations-Queries.
--- Quelle: Iceberg-Mart in Lakekeeper-Catalog.
--- Refresh: Asynchron alle 15 Minuten.
--- Storage: liegt im StarRocks-StorageVolume (S3) -> kontrollierte Daten-Duplikation.
+-- Purpose: sub-second answers to recurring aggregation queries.
+-- Source: Iceberg mart in the Lakekeeper catalog.
+-- Refresh: async every 15 minutes.
+-- Storage: lives in the StarRocks storage volume (S3) -> controlled data
+--          duplication.
 --
--- Governance: MV-DDL gehoert in den Argo-Workflow, der die Mart-Tabelle
--- erzeugt -- nicht ad hoc per Hand. Damit bleibt das Lebenszyklus-Modell
--- (Mart -> MV -> Refresh) konsistent.
+-- Governance: MV DDL belongs in the Argo workflow that creates the mart
+-- table — not ad hoc by hand. That keeps the lifecycle model
+-- (mart -> MV -> refresh) consistent.
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_orders
-COMMENT 'Tagesaggregat Orders pro Customer fuer Dashboard XYZ'
+COMMENT 'Daily aggregate of orders per customer for dashboard XYZ'
 DISTRIBUTED BY HASH(customer_id) BUCKETS 32
 PARTITION BY (day)
 REFRESH ASYNC EVERY (INTERVAL 15 MINUTE)
@@ -31,8 +32,8 @@ FROM lake.gold.orders
 GROUP BY 1, 2;
 
 -- ----------------------------------------------------------------------------
--- Query-Rewrite verifizieren: EXPLAIN sollte 'mv_daily_orders' zeigen,
--- nicht den Iceberg-Scan auf gold.orders.
+-- Verify query rewrite: EXPLAIN should show 'mv_daily_orders', not an
+-- Iceberg scan on gold.orders.
 -- ----------------------------------------------------------------------------
 -- EXPLAIN SELECT customer_id, sum(revenue)
 -- FROM lake.gold.orders
@@ -40,13 +41,13 @@ GROUP BY 1, 2;
 -- GROUP BY customer_id;
 
 -- ----------------------------------------------------------------------------
--- Manueller Refresh (z.B. fuer Initial-Load oder nach Schema-Change)
+-- Manual refresh (e.g. for initial load or after a schema change).
 -- ----------------------------------------------------------------------------
 -- REFRESH MATERIALIZED VIEW mv_daily_orders;
 -- REFRESH MATERIALIZED VIEW mv_daily_orders PARTITION (day='2026-05-01') FORCE;
 
 -- ----------------------------------------------------------------------------
--- Status / Health
+-- Status / health.
 -- ----------------------------------------------------------------------------
 -- SHOW MATERIALIZED VIEWS WHERE NAME = 'mv_daily_orders';
 -- SELECT * FROM information_schema.task_runs

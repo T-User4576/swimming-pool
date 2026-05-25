@@ -1,8 +1,8 @@
 # =============================================================================
-# Lakehouse Repo .gitignore
+# Lakehouse repo .gitignore
 # =============================================================================
 
-# --- Python (PySpark Jobs in iceberg/spark/, ggf. weitere) ----------------
+# --- Python (PySpark jobs in iceberg/spark/, possibly more) ---------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -24,8 +24,8 @@ kubeconfig
 *.kubeconfig
 
 # --- Secrets ---------------------------------------------------------------
-# Niemals echte Credentials committen. Beispiel-Templates (*.example.yaml /
-# *.example.json) sind erlaubt und werden hier explizit nicht ignoriert.
+# Never commit real credentials. Example templates (*.example.yaml /
+# *.example.json) are allowed and explicitly not ignored here.
 *credentials.yaml
 *credentials.json
 *-secrets.yaml
@@ -37,7 +37,7 @@ secrets/*.json
 .env.*
 !.env.example
 
-# --- Terraform (falls je dazukommt) ---------------------------------------
+# --- Terraform (if it ever shows up) --------------------------------------
 .terraform/
 *.tfstate
 *.tfstate.backup
@@ -45,13 +45,13 @@ secrets/*.json
 !*.tfvars.example
 .terraform.lock.hcl
 
-# --- Spark / Iceberg lokale Artefakte -------------------------------------
+# --- Spark / Iceberg local artefacts --------------------------------------
 spark-warehouse/
 metastore_db/
 derby.log
 *.crc
 
-# --- Editoren / IDEs ------------------------------------------------------
+# --- Editors / IDEs -------------------------------------------------------
 .idea/
 .vscode/
 *.swp
@@ -61,16 +61,16 @@ derby.log
 .classpath
 .settings/
 
-# --- OS-Müll --------------------------------------------------------------
+# --- OS clutter -----------------------------------------------------------
 .DS_Store
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# --- Claude Code lokale Settings ------------------------------------------
+# --- Claude Code local settings -------------------------------------------
 .claude/
 
-# --- Logs / temporäre Dateien ---------------------------------------------
+# --- Logs / temp files ----------------------------------------------------
 *.log
 *.tmp
 logs/

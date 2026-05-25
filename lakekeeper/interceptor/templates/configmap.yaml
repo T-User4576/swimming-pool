@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "interceptor.fullname" . }}-nginx
+  labels:
+    {{- include "interceptor.labels" . | nindent 4 }}
+data:
+  # nginx.conf is taken 1:1 from the source file in the chart root
+  # (see ../nginx.conf). On changes run `helm upgrade` and trigger a
+  # rollout on the deployment (Helm does that automatically via the
+  # ConfigMap checksum annotation on the deployment).
+  nginx.conf: |
+{{ .Files.Get "nginx.conf" | indent 4 }}

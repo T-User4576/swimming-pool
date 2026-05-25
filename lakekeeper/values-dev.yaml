@@ -1,65 +1,29 @@
-# Lakekeeper Helm-Values für dev (OpenFGA-Authorizer + Role-Sync-Sidecar).
+# Lakekeeper Helm values for dev (OpenFGA authorizer).
 #
-# WICHTIG: Dies ist ein Override-Fragment.
-# Vor `helm upgrade` mit den existierenden Cluster-Werten mergen:
+# IMPORTANT: override fragment. Merge with the existing cluster values
+# before `helm upgrade`:
 #   helm get values lakekeeper -n lakekeeper > current-values-dev.yaml
+#
+# Architecture: Lakekeeper runs here as a pure catalog deployment on the
+# default port 8181. The token interceptor (nginx + role-sync) lives in
+# its OWN deployment (see `lakekeeper/interceptor/`), not as a sidecar in
+# the Lakekeeper pod — the official chart hardcodes port names a sidecar
+# would collide with (the Service would then pick the first container =
+# Lakekeeper, bypassing the interceptor).
+#
+# Routes to Lakekeeper:
+#   - Service `lakekeeper-interceptor:8181` (separate manifest): UI/ingress
+#     traffic; receiver auto-assigns roles on first login.
+#   - Service `lakekeeper:8181` (from this chart): direct wire, for
+#     in-cluster service clients with their own client_credentials token
+#     (e.g. Spark, StarRocks) — saves a hop.
 
+# Use the dedicated `authz.openfga.*` fields (chart 0.11.x). Setting
+# the same thing via `catalog.extraEnv` with LAKEKEEPER__OPENFGA__*
+# also works, but the chart's first-class fields are preferred — they
+# survive value-merging better and document intent.
 authz:
   backend: openfga
-
-extraEnv:
-  - name: LAKEKEEPER__OPENFGA__ENDPOINT
-    value: "http://openfga.lakekeeper.svc.cluster.local:8081"
-  - name: LAKEKEEPER__OPENFGA__STORE_NAME
-    value: "lakekeeper"
-
-# ---------------------------------------------------------------------------
-# Role-Sync-Sidecar: Keycloak-Gruppen → Lakekeeper-Rollen
-#
-# Mapping: ROLE_MAPPING_<LAKEKEEPER-ROLLE>=KcGruppe1,KcGruppe2,...
-#   - Rollenname muss in Lakekeeper existieren (case-insensitiv)
-#   - Priorität bei mehrfacher Übereinstimmung: alphabetisch nach Rollenname
-#   - User ohne passende Gruppe erhalten keine Rolle → manuelle Zuweisung via UI
-#   - User mit bereits zugewiesener Rolle (auch manuell) werden nie angetastet
-# ---------------------------------------------------------------------------
-extraContainers:
-  - name: role-sync
-    image: python:3.12-slim
-    command:
-      - sh
-      - -c
-      - pip install --quiet --no-cache-dir requests && exec python /scripts/sync.py
-    env:
-      - name: KEYCLOAK_URL
-        value: "https://keycloak.example.com"
-      - name: KEYCLOAK_REALM
-        value: "lakehouse"
-      - name: KEYCLOAK_CLIENT_ID
-        value: "svc-lakekeeper-sync"
-      - name: LAKEKEEPER_URL
-        value: "http://localhost:8181"
-      - name: SYNC_INTERVAL_SECS
-        value: "60"
-      # --- Mapping (anpassen) ---
-      - name: ROLE_MAPPING_ADMIN
-        value: "AbteilungIT,AbteilungCompliance"
-      - name: ROLE_MAPPING_WORKER
-        value: "AbteilungData"
-    envFrom:
-      - secretRef:
-          name: lakekeeper-role-sync-credentials
-    volumeMounts:
-      - name: role-sync-script
-        mountPath: /scripts
-    resources:
-      requests:
-        cpu: 10m
-        memory: 64Mi
-      limits:
-        cpu: 100m
-        memory: 128Mi
-
-extraVolumes:
-  - name: role-sync-script
-    configMap:
-      name: lakekeeper-role-sync-script
+  openfga:
+    endpoint: "http://openfga.lakekeeper.svc.cluster.local:8081"
+    store: "lakekeeper"

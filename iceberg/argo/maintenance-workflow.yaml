@@ -1,30 +1,31 @@
 # =============================================================================
-# Iceberg Maintenance — Argo Workflows
+# Iceberg maintenance — Argo Workflows
 # =============================================================================
-# Drei Bausteine:
-#   1) WorkflowTemplate 'iceberg-maintenance'  -- ruft den Spark-Job auf,
-#                                                 parametriert nach jobs/namespaces
-#   2) CronWorkflow 'iceberg-daily-maintenance' -- Compaction + Snapshot Expiry
-#                                                  + Manifest Rewrite, taeglich
-#   3) CronWorkflow 'iceberg-weekly-orphan'     -- Orphan File Removal, woechentlich
+# Three building blocks:
+#   1) WorkflowTemplate 'iceberg-maintenance'   -- invokes the Spark job,
+#                                                  parametrized by jobs/namespaces
+#   2) CronWorkflow 'iceberg-daily-maintenance' -- compaction + snapshot
+#                                                  expiry + manifest rewrite,
+#                                                  daily
+#   3) CronWorkflow 'iceberg-weekly-orphan'     -- orphan file removal, weekly
 #
-# Voraussetzungen:
-#   - Spark Operator im Cluster (sparkoperator.k8s.io)
-#   - ConfigMap 'iceberg-maintenance-script' mit ../spark/maintenance.py
-#     (oder PVC / Init-Container, je nach eurem Spark-Job-Pattern)
-#   - Secret 'lakekeeper-credentials' mit OIDC-Client-Credentials
-#   - Secret 'minio-credentials' mit S3-Credentials
+# Prerequisites:
+#   - Spark Operator in the cluster (sparkoperator.k8s.io)
+#   - ConfigMap 'iceberg-maintenance-script' carrying ../spark/maintenance.py
+#     (or PVC / init container, depending on your Spark-job pattern)
+#   - Secret 'lakekeeper-credentials' with OIDC client credentials
+#   - Secret 'minio-credentials' with S3 credentials
 #
-# Agnostik-Prinzip:
-#   - Der Spark-Job listet alle Tabellen via Catalog-Discovery
-#   - Pro Tabelle entscheiden TBLPROPERTIES, ob/wie maintained wird
-#   - Neue Tabellen werden automatisch erfasst, ohne Workflow-Anpassung
-#   - Opt-out per ALTER TABLE ... SET TBLPROPERTIES
+# Agnostic principle:
+#   - The Spark job lists all tables via catalog discovery.
+#   - TBLPROPERTIES per table decide whether/how it is maintained.
+#   - New tables are picked up automatically, no workflow change needed.
+#   - Opt-out per table via ALTER TABLE ... SET TBLPROPERTIES.
 # =============================================================================
 
 ---
 # -----------------------------------------------------------------------------
-# 1) Generischer WorkflowTemplate
+# 1) Generic WorkflowTemplate
 # -----------------------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
@@ -37,9 +38,9 @@ spec:
   arguments:
     parameters:
       - name: jobs              # compaction,snapshot,orphan,manifest,position_deletes
-      - name: namespaces        # leer = alle, sonst CSV
+      - name: namespaces        # empty = all, otherwise CSV
         value: ""
-      - name: tables            # leer = alle, sonst CSV (db.table)
+      - name: tables            # empty = all, otherwise CSV (db.table)
         value: ""
       - name: dry-run
         value: "false"
@@ -157,7 +158,7 @@ metadata:
   name: iceberg-daily-maintenance
   namespace: argo
 spec:
-  schedule: "0 2 * * *"           # 02:00 Uhr UTC
+  schedule: "0 2 * * *"           # 02:00 UTC
   timezone: Europe/Berlin
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 5
@@ -172,7 +173,7 @@ spec:
 
 ---
 # -----------------------------------------------------------------------------
-# 3) Weekly Orphan-File-Cleanup (gefaehrlichster Job, nur 1x pro Woche)
+# 3) Weekly orphan-file cleanup (most dangerous job, only once a week)
 # -----------------------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
@@ -180,7 +181,7 @@ metadata:
   name: iceberg-weekly-orphan
   namespace: argo
 spec:
-  schedule: "0 4 * * 0"           # Sonntag 04:00
+  schedule: "0 4 * * 0"           # Sunday 04:00
   timezone: Europe/Berlin
   concurrencyPolicy: Forbid
   workflowSpec:

@@ -1,0 +1,45 @@
+# Prod override for the lakekeeper-interceptor chart.
+# Only apply after a successful dev E2E run.
+#
+# Prerequisite: secret `lakekeeper-role-sync-credentials` with
+# KEYCLOAK_CLIENT_SECRET exists in the namespace.
+
+replicaCount: 2          # HA — mirror is fail-open, but the receiver's
+                         # first contact should not be a single point.
+
+roleSync:
+  image:
+    # TODO: adjust — prod registry, immutable tag (never :latest).
+    repository: REGISTRY/lakekeeper-role-sync
+    tag: "0.1.0"
+  keycloak:
+    url: "https://keycloak.example.com"
+    realm: "lakehouse"
+    audience: "lakekeeper"
+  roleMapping:
+    ADMIN:
+      - AbteilungIT
+    COMPLIANCE:
+      - AbteilungCompliance
+    WORKER:
+      - AbteilungData
+
+# Enable ingress — example with nginx-ingress-controller + cert-manager.
+# Adapt hostname/className/annotations to your cluster.
+# ingress:
+#   enabled: true
+#   className: nginx
+#   annotations:
+#     cert-manager.io/cluster-issuer: letsencrypt-prod
+#     # If your cluster has a self-signed cert behind the nginx ingress —
+#     # not a problem for the interceptor itself (nginx in the pod is
+#     # plain HTTP internally); TLS terminates at the ingress.
+#   hosts:
+#     - host: lakekeeper.example.com
+#       paths:
+#         - path: /
+#           pathType: Prefix
+#   tls:
+#     - secretName: lakekeeper-tls
+#       hosts:
+#         - lakekeeper.example.com

@@ -1,0 +1,18 @@
+apiVersion: v2
+name: lakekeeper-interceptor
+description: |
+  Token interceptor in front of Lakekeeper: nginx mirror proxy + Python
+  receiver that translates the OIDC `groups` claim from user JWTs into
+  Lakekeeper role assignments. Standalone deployment (no sidecar in the
+  Lakekeeper pod) so the hardcoded port name `http` of the official
+  Lakekeeper chart does not collide.
+type: application
+version: 0.1.0          # chart version
+appVersion: "0.1.0"     # matches the role-sync image tag
+keywords:
+  - lakekeeper
+  - oidc
+  - keycloak
+  - rbac
+  - iceberg
+home: https://github.com/T-User4576/swimming-pool/tree/main/lakekeeper/interceptor

@@ -1,27 +1,28 @@
 # =============================================================================
-# Argo Workflows: StarRocks Materialized View Orchestrierung
+# Argo Workflows: StarRocks materialized view orchestration.
 # =============================================================================
-# Enthaelt drei Bausteine:
-#   1) WorkflowTemplate 'starrocks-mv-refresh'   -- generischer Refresh-Step
-#   2) CronWorkflow     'mv-orders-recent-cron'  -- scheduled Refresh
-#   3) WorkflowTemplate 'gold-orders-pipeline'   -- DAG: Mart-Load + MV-Refresh
-#                                                  (event-driven, nicht scheduled)
+# Contains three building blocks:
+#   1) WorkflowTemplate 'starrocks-mv-refresh'   -- generic refresh step
+#   2) CronWorkflow     'mv-orders-recent-cron'  -- scheduled refresh
+#   3) WorkflowTemplate 'gold-orders-pipeline'   -- DAG: mart load + MV
+#                                                  refreshes (event-driven,
+#                                                  not scheduled)
 #
-# Vorbedingungen:
-#   - Argo Workflows installiert, Namespace 'argo'
-#   - ServiceAccount 'argo-workflow-starrocks' im Namespace 'argo' mit
-#     Permissions zum Pod-Erzeugen
-#   - Secret 'starrocks-svc-credentials' im Namespace 'argo' mit Keys
-#     'user' und 'password' (Service-Account fuer SQL-Refresh)
-#   - StarRocks FE-Service erreichbar unter
-#     starrocks-fe-service.starrocks.svc.cluster.local:9030
+# Prerequisites:
+#   - Argo Workflows installed, namespace 'argo'.
+#   - ServiceAccount 'argo-workflow-starrocks' in namespace 'argo' with
+#     permissions to create pods.
+#   - Secret 'starrocks-svc-credentials' in namespace 'argo' with keys
+#     'user' and 'password' (service account for SQL refresh).
+#   - StarRocks FE service reachable at
+#     starrocks-fe-service.starrocks.svc.cluster.local:9030.
 # =============================================================================
 
 ---
 # -----------------------------------------------------------------------------
-# 1) Generische WorkflowTemplate: REFRESH MATERIALIZED VIEW
+# 1) Generic WorkflowTemplate: REFRESH MATERIALIZED VIEW.
 # -----------------------------------------------------------------------------
-# Wird von CronWorkflows UND von DAGs aufgerufen. Ein Refresh-Step ueberall gleich.
+# Called from CronWorkflows AND from DAGs. One refresh step everywhere.
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
@@ -36,9 +37,9 @@ spec:
         parameters:
           - name: mv_name
           - name: partition
-            value: ""        # leer = full refresh, sonst PARTITION (...) FORCE
+            value: ""        # empty = full refresh, else PARTITION (...) FORCE
           - name: force
-            value: "false"   # bei Schema-/Code-Aenderungen FORCE noetig
+            value: "false"   # FORCE needed on schema/code changes
       retryStrategy:
         limit: "2"
         retryPolicy: OnFailure
@@ -80,7 +81,7 @@ spec:
             echo "Executing: $SQL"
             mysql -h "$SR_HOST" -P 9030 -u "$SR_USER" -p"$SR_PASS" -e "$SQL"
 
-            # Warten bis Refresh fertig (asynchroner REFRESH gibt sofort zurueck)
+            # Wait until refresh is done (async REFRESH returns immediately).
             for i in $(seq 1 60); do
               STATE=$(mysql -h "$SR_HOST" -P 9030 -u "$SR_USER" -p"$SR_PASS" -BN -e \
                 "SELECT state FROM information_schema.materialized_views \
@@ -97,17 +98,17 @@ spec:
 
 ---
 # -----------------------------------------------------------------------------
-# 2) CronWorkflow: scheduled Refresh fuer mv_orders_recent
+# 2) CronWorkflow: scheduled refresh for mv_orders_recent.
 # -----------------------------------------------------------------------------
-# Pattern fuer Hot-Subset MVs ohne event-Trigger -- hier reicht stuendlich.
+# Pattern for hot-subset MVs without an event trigger — hourly suffices.
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata:
   name: mv-orders-recent-cron
   namespace: argo
 spec:
-  schedule: "0 * * * *"          # stuendlich
-  concurrencyPolicy: Forbid       # ueberlappende Refreshes verhindern
+  schedule: "0 * * * *"          # hourly
+  concurrencyPolicy: Forbid       # prevent overlapping refreshes
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 5
   workflowSpec:
@@ -120,11 +121,11 @@ spec:
 
 ---
 # -----------------------------------------------------------------------------
-# 3) WorkflowTemplate (DAG): Mart-Load -> abhaengige MV-Refreshes
+# 3) WorkflowTemplate (DAG): mart load -> dependent MV refreshes.
 # -----------------------------------------------------------------------------
-# Pattern fuer event-driven Refresh: nach erfolgreichem Spark-Mart-Load werden
-# alle abhaengigen MVs parallel refreshed. So ist die Konsistenz "Mart -> MV"
-# garantiert und keine MV liegt vor dem letzten Mart-Stand.
+# Pattern for event-driven refresh: after a successful Spark mart load, all
+# dependent MVs are refreshed in parallel. That guarantees "mart -> MV"
+# consistency and no MV lags behind the latest mart state.
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata:
@@ -137,17 +138,17 @@ spec:
     - name: pipeline
       dag:
         tasks:
-          # 1. Spark-Job laedt Iceberg-Mart lake.gold.orders neu
+          # 1. Spark job reloads the Iceberg mart lake.gold.orders.
           - name: spark-mart-load
             templateRef:
-              name: spark-job              # vorausgesetzt: existiert in eurem Cluster
+              name: spark-job              # assumed to exist in your cluster
               template: run
             arguments:
               parameters:
                 - name: job
                   value: gold_orders_load
 
-          # 2. Tages-Aggregat refreshen (Pattern 1)
+          # 2. Refresh the daily aggregate (Pattern 1).
           - name: refresh-mv-orders-daily
             dependencies: [spark-mart-load]
             templateRef:
@@ -158,7 +159,7 @@ spec:
                 - name: mv_name
                   value: mv_orders_daily
 
-          # 3. Hot-Subset refreshen (Pattern 2)
+          # 3. Refresh the hot subset (Pattern 2).
           - name: refresh-mv-orders-recent
             dependencies: [spark-mart-load]
             templateRef:
@@ -169,8 +170,8 @@ spec:
                 - name: mv_name
                   value: mv_orders_recent
 
-          # 4. Hot-Cache der Dim-Tabelle (Pattern 3) -- nur wenn dim_customer
-          #    im selben Load mitgewandert ist; hier optional / parallel
+          # 4. Hot cache of the dimension table (Pattern 3) — only when
+          #    dim_customer was loaded in the same run; optional / parallel.
           - name: refresh-mv-dim-customer
             dependencies: [spark-mart-load]
             templateRef:
