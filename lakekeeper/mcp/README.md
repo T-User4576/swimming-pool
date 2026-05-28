@@ -5,9 +5,10 @@ liefert: welche Tabellen es gibt, wie sie aussehen (Schema, Typen, Kommentare),
 wie sie partitioniert sind und welche Snapshots existieren. Ziel: dem LLM genug
 Kontext für effiziente StarRocks-SQL geben.
 
-Der Server ist ein einzelnes Skript (`server.py`) mit PEP-723-Inline-Dependencies
-— kein `pyproject.toml`, kein manuelles venv. `uv` liest die Dependencies aus dem
-`# /// script`-Block am Dateianfang.
+Der Server ist als installierbares Python-Paket `lakekeeper-mcp` (Hatchling-Backend)
+gepackaged und stellt ein Console-Script `lakekeeper-mcp` bereit. Im Agent-Setup
+reicht damit `uvx lakekeeper-mcp` — uv löst die Dependencies aus dem Nexus-Index
+auf, installiert in ein ephemerales venv und startet den Server.
 
 ## Tools
 
@@ -18,33 +19,88 @@ Der Server ist ein einzelnes Skript (`server.py`) mit PEP-723-Inline-Dependencie
 | `describe_table` | `namespace`, `table` | Schema + Kommentare, Partition-Spec, Sort-Order, Properties, aktueller Snapshot |
 | `list_snapshots` | `namespace`, `table`, `limit` | Snapshot-Historie + Time-Travel-Syntax |
 
----
+## Layout
 
-## 1. Dependencies herunterladen (einmalig, Online-Maschine)
-
-```bash
-pip download fastmcp httpx --dest ./wheels
+```
+lakekeeper/mcp/
+├── pyproject.toml                 # Paket-Metadaten + Build-Config (Hatchling)
+├── README.md                      # diese Datei
+├── opencode-commands.md           # wiederverwendbare Slash-Commands
+└── src/lakekeeper_mcp/
+    ├── __init__.py                # Single Source of Truth für die Version
+    └── server.py                  # FastMCP-Server + Entry-Point `main()`
 ```
 
-Lädt `fastmcp` + `httpx` + transitive Dependencies als `.whl`-Dateien.
+`pyproject.toml` deklariert:
+- **Name** `lakekeeper-mcp`, Dependencies `fastmcp`, `httpx`.
+- **Console-Script** `lakekeeper-mcp = "lakekeeper_mcp.server:main"` — das ist
+  der Name, den `uvx`, `pipx` oder `pip install` als ausführbares Binary anlegen.
+- **Version dynamisch** aus `src/lakekeeper_mcp/__init__.py` — die einzige Stelle,
+  an der die Versionsnummer für Release-Bumps gepflegt werden muss.
 
 ---
 
-## 2. Wheels in Nexus hochladen (einmalig)
+## 1. Wheel bauen (lokal oder im CI)
+
+```bash
+cd lakekeeper/mcp
+uv build                  # erzeugt dist/lakekeeper_mcp-<version>-py3-none-any.whl
+                          # + dist/lakekeeper_mcp-<version>.tar.gz
+```
+
+`uv build` braucht keine vorinstallierten Build-Tools — uv holt sich Hatchling
+selber in ein ephemerales Build-venv.
+
+Für lokale Sanity-Checks (ohne Nexus) reicht danach:
+
+```bash
+uvx --from ./dist/lakekeeper_mcp-0.1.0-py3-none-any.whl lakekeeper-mcp
+```
+
+---
+
+## 2. Wheel + sdist zu Nexus pushen
 
 Voraussetzung: Nexus-Repository vom Typ `pypi (hosted)`, z.B. `pypi-intern`.
 
+### Variante a) `uv publish` (empfohlen)
+
 ```bash
-for f in ./wheels/*.whl; do
-  curl -u admin:PASSWORD \
+uv publish \
+  --publish-url http://nexus:8081/repository/pypi-intern/ \
+  --username admin --password "$NEXUS_PASSWORD" \
+  dist/*
+```
+
+`uv publish` lädt alle Artefakte aus `dist/` zum Index hoch.
+
+### Variante b) Direkt per `curl` (falls `uv publish` blockiert ist)
+
+```bash
+for f in dist/*.whl dist/*.tar.gz; do
+  curl -u admin:"$NEXUS_PASSWORD" \
     -X POST "http://nexus:8081/service/rest/v1/components?repository=pypi-intern" \
     -F "pypi.asset=@$f;type=application/octet-stream"
 done
 ```
 
-Falls `uv` bereits für den StarRocks-MCP eingerichtet wurde (`starrocks/mcp/README.md`),
-sind `fastmcp` und `httpx` ggf. schon teilweise in Nexus — doppelte Uploads sind
-unkritisch, Nexus dedupliziert.
+Bei einem Re-Push derselben Versionsnummer lehnt Nexus den Upload ab (gut so).
+Für jeden Release `__version__` in `src/lakekeeper_mcp/__init__.py` bumpen.
+
+### Transitive Dependencies vor-mirroren (einmalig)
+
+Damit `uvx lakekeeper-mcp` air-gapped läuft, müssen `fastmcp`, `httpx` und ihre
+transitiven Abhängigkeiten ebenfalls in Nexus liegen. Wenn das schon für den
+StarRocks-MCP gemacht wurde, ist nichts mehr zu tun — sonst:
+
+```bash
+pip download fastmcp httpx --dest ./wheels
+for f in ./wheels/*.whl ./wheels/*.tar.gz; do
+  curl -u admin:"$NEXUS_PASSWORD" \
+    -X POST "http://nexus:8081/service/rest/v1/components?repository=pypi-intern" \
+    -F "pypi.asset=@$f;type=application/octet-stream"
+done
+```
 
 ---
 
@@ -61,15 +117,17 @@ default = true
 trusted-host = ["nexus:8081"]
 ```
 
-Verbindungstest (lädt Dependencies aus Nexus, danach offline lauffähig):
+Verbindungstest (lädt das Paket inkl. Dependencies aus Nexus):
 
 ```bash
-uv run lakekeeper/mcp/server.py --help
+uvx lakekeeper-mcp --help        # exit-code 0 + Fastmcp-Hilfe → Setup ok
 ```
 
 ---
 
 ## 4. opencode.json
+
+Das Endziel: ein einziger Eintrag, kein hartkodierter Pfad, kein lokales Checkout.
 
 ```jsonc
 {
@@ -77,7 +135,7 @@ uv run lakekeeper/mcp/server.py --help
   "mcp": {
     "lakekeeper": {
       "type": "local",
-      "command": ["uv", "run", "/absoluter/pfad/zu/lakekeeper/mcp/server.py"],
+      "command": ["uvx", "lakekeeper-mcp"],
       "enabled": true,
       "environment": {
         "LAKEKEEPER_URL": "http://lakekeeper.lakekeeper.svc.cluster.local:8181",
@@ -91,8 +149,14 @@ uv run lakekeeper/mcp/server.py --help
 }
 ```
 
-`command` braucht einen **absoluten Pfad** zu `server.py` — OpenCode startet den
-Prozess nicht zwingend aus dem Repo-Root.
+`uvx` cached das Paket nach dem ersten Aufruf in `~/.cache/uv` — nachfolgende
+Starts sind schnell und brauchen keinen Netzwerk-Roundtrip mehr.
+
+Optional eine Version pinnen (z.B. in CI-Setups):
+
+```jsonc
+"command": ["uvx", "lakekeeper-mcp==0.1.0"]
+```
 
 ### Authentifizierung
 
@@ -116,8 +180,8 @@ KEYCLOAK_CLIENT_SECRET  <secret>
 # Lakekeeper aus dem Cluster erreichbar machen
 kubectl port-forward svc/lakekeeper 8181:8181 -n lakekeeper
 
-# Server gegen localhost testen
-LAKEKEEPER_URL=http://localhost:8181 uv run lakekeeper/mcp/server.py
+# Paket aus Nexus holen und gegen localhost testen
+LAKEKEEPER_URL=http://localhost:8181 uvx lakekeeper-mcp
 ```
 
 In OpenCode danach `list_namespaces` aufrufen — erwartete Ausgabe sind die
@@ -125,10 +189,31 @@ Namespaces `bronze.*`, `silver.*`, `gold.*`, `serving.*`, `mart.*`.
 
 ---
 
+## 6. Lokale Entwicklung
+
+Während der Code-Änderung interessiert kein gebautes Wheel. Direkt aus dem
+Checkout starten — uv installiert das Paket im Editable-Mode in ein lokales venv:
+
+```bash
+cd lakekeeper/mcp
+uv run lakekeeper-mcp                 # uses [project.scripts] entry point
+# oder direkt:
+uv run python -m lakekeeper_mcp.server
+```
+
+Für einen schnellen Smoke-Test ohne installiertes uv reicht auch:
+
+```bash
+uv pip install -e .
+lakekeeper-mcp
+```
+
+---
+
 ## Code-Aufbau & eigene Tools hinzufügen
 
-`server.py` ist in fünf Teile gegliedert (von oben nach unten, jeweils mit einem
-`# --- N. … ---`-Kommentar markiert):
+`src/lakekeeper_mcp/server.py` ist in fünf Teile gegliedert (von oben nach unten,
+jeweils mit einem `# --- N. … ---`-Kommentar markiert):
 
 1. **Konfiguration** — alle Einstellungen kommen aus Umgebungsvariablen
    (`LAKEKEEPER_URL`, `LAKEKEEPER_WAREHOUSE`, `KEYCLOAK_*`).
@@ -141,6 +226,10 @@ Namespaces `bronze.*`, `silver.*`, `gold.*`, `serving.*`, `mart.*`.
    wandeln die Iceberg-Metadaten in lesbare Form.
 5. **Tools** — die vier mit `@mcp.tool()` dekorierten Funktionen.
 
+Am Ende der Datei steht `main()` — der Entry-Point, auf den `[project.scripts]`
+in `pyproject.toml` zeigt. `main()` ruft `mcp.run()` auf und startet die
+JSON-RPC-Schleife über stdin/stdout.
+
 ### Wie ein Tool funktioniert
 
 FastMCP macht jede mit `@mcp.tool()` dekorierte Funktion für OpenCode aufrufbar:
@@ -151,8 +240,6 @@ FastMCP macht jede mit `@mcp.tool()` dekorierte Funktion für OpenCode aufrufbar
 - Die **Parameter** (mit Typ-Hints) werden zum Eingabe-Schema. Ein Default-Wert
   macht einen Parameter optional.
 - Der **Rückgabewert** (hier immer `str`) geht zurück an das LLM.
-
-`mcp.run()` am Dateiende startet die JSON-RPC-Schleife über stdin/stdout.
 
 ### Beispiel: neues Tool hinzufügen
 
@@ -169,6 +256,9 @@ def get_table_location(namespace: str, table: str) -> str:
     meta = _table_metadata(namespace, table)
     return meta.get("location", "unbekannt")
 ```
+
+Nach jedem nicht-trivialen Eingriff `__version__` in
+`src/lakekeeper_mcp/__init__.py` bumpen und neu zu Nexus pushen.
 
 ### Form der Iceberg-Metadaten
 

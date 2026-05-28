@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "fastmcp>=2.14.0",
-#   "httpx>=0.27.0",
-# ]
-# ///
 """Lakekeeper MCP server — Iceberg catalog metadata for OpenCode.
 
 Provides content-level catalog discovery (schema, comments, partitioning,
@@ -21,10 +14,10 @@ File layout (top to bottom):
 How FastMCP works: each function decorated with @mcp.tool() is exposed to
 OpenCode as a callable tool. The function docstring is the description
 the LLM sees; the type-annotated parameters become the input schema.
-mcp.run() at the bottom of the file starts the JSON-RPC loop over
-stdin/stdout. New tool = new function + @mcp.tool() + a meaningful
-docstring; nothing else. Details: README.md, section "Code-Aufbau & eigene
-Tools".
+main() at the bottom of the file calls mcp.run() to start the JSON-RPC
+loop over stdin/stdout. New tool = new function + @mcp.tool() + a
+meaningful docstring; nothing else. Details: README.md, section
+"Code-Aufbau & eigene Tools".
 """
 
 import datetime
@@ -354,5 +347,13 @@ def list_snapshots(namespace: str, table: str, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
+# --- Entry point ----------------------------------------------------------
+def main() -> None:
+    """Console-script entry point — declared in pyproject.toml as
+    `lakekeeper-mcp`. Starts the JSON-RPC loop over stdin/stdout.
+    """
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
