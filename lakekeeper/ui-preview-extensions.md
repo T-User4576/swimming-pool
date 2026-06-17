@@ -83,3 +83,41 @@ Leer = Default (`extensions.duckdb.org`).
   den UI-Origin per CORS erlauben (analog zum Object-Store-Zugriff der Preview).
 - **Core-Engine**: Die DuckDB-WASM-Engine selbst (`duckdb-eh.wasm` etc.) kommt aus
   dem UI-Bundle und funktioniert offline — nur die o.g. Extensions fehlen.
+
+## Privater Bucket: Zugriff per STS-Vended-Credentials
+
+Die UI-Preview (DuckDB-WASM) kann **kein Remote Signing** — sie attached nur den
+REST-Catalog und konsumiert **vended credentials** aus der `loadTable`-Antwort.
+Auf einem **privaten** Bucket funktioniert die Preview daher ausschließlich mit
+**STS** (`AssumeRole`). Remote Signing bleibt allein für Spark/pyiceberg/Trino;
+für die Testbank ist die Alternative ein öffentlich lesbarer Bucket (s. kiddie-pool).
+
+### 1. In MinIO — am besten über die MinIO-Console (`:9001`)
+
+- **User** anlegen (Identity → Users): Username = Access Key, Passwort = Secret.
+  **Kein Service Account** — der kann kein `AssumeRole`; es muss ein echter User
+  sein. Lakekeeper ruft mit diesem User selbst `AssumeRole` auf und vendet dem
+  Browser kurzlebige Creds.
+- **Policy** anlegen (Identity → Policies) und dem User zuweisen — mit
+  `s3:GetObject`/`PutObject`/`DeleteObject`/`ListBucket`/`GetBucketLocation` auf
+  `arn:aws:s3:::<bucket>` **und** `arn:aws:s3:::<bucket>/*`. Die vended Creds sind
+  nie mehr als diese Policy.
+
+### 2. Im Lakekeeper-Warehouse (Storage-Settings)
+
+| Feld | Wert |
+|---|---|
+| Credential-Type / Access Key / Secret | `access-key` + der **MinIO-User** aus Schritt 1 |
+| **Enable STS** (`sts-enabled`) | **an** |
+| Assume Role ARN | Dummy, z. B. `arn:aws:iam::123456789012:role/dummy` — MinIO ignoriert ihn |
+| Remote Signing (`remote-signing-enabled`) | **an lassen** |
+| Remote signing URL style | `path` (für MinIO) |
+| Endpoint | **browser-erreichbarer Host** (gleicher Name innen wie außen) |
+
+`sts-enabled` und `remote-signing-enabled` dürfen **gleichzeitig** an sein — es
+sind zwei unabhängige Flags. Der Client wählt den Modus per Iceberg-REST-Header
+`X-Iceberg-Access-Delegation`: der **Browser** fordert `vended-credentials`, **Spark**
+`remote-signing`. So funktionieren beide parallel auf demselben privaten Bucket.
+
+Ergebnis: Der Browser holt sich Temp-Creds (erkennbar am `x-amz-security-token` im
+S3-GET) und liest den **privaten** Bucket; Spark signiert weiter per Remote Signing.
