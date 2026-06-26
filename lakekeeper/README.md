@@ -17,6 +17,7 @@ Gruppe → Lakekeeper-Rolle** übernimmt ein separates Helm-Chart
 | `interceptor/` | Eigenständiges Helm-Chart `lakekeeper-interceptor` (nginx + Receiver, Source + Templates + Doku) |
 | `values-dev.yaml` | Lakekeeper-Helm-Overrides (reines Catalog-Setup). Prod nutzt aktuell die gleichen Werte — sobald eine echte Divergenz auftaucht, `values-prod.yaml` daneben anlegen. |
 | `upgrade.md` | Versions-Upgrade-Vorgehen + Stolpersteine |
+| `logging.md` | Audit-Logging der Authorization-Events (`LAKEKEEPER__AUDIT__TRACING__ENABLED`) |
 | `ui-preview-extensions.md` | DuckDB-WASM-Extensions, die die UI-Preview braucht (für Offline-/Air-Gap-Mirror) |
 | `cedar/` | Inaktiv — Referenz für spätere Lakekeeper+-Evaluierung |
 

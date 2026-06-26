@@ -165,7 +165,7 @@ Hadoop-Schreib-Schicht. **Pattern B ist immer vorzuziehen**.
 4. **SQL-Tab**: Plan ansehen, ist Predicate-Pushdown drin? Broadcast vs Sort-Merge?
 5. **Executors-Tab**: GC-Time-Anteil > 10%? → Memory zu klein. Tasks failed? → Logs.
 6. **DAG-Visualization**: zu viele Shuffles? Stages konsolidieren.
-7. **Logs in Loki**: Stack-Trace bei OOM/Exception.
+7. **Logs im Log-Backend**: Stack-Trace bei OOM/Exception.
 
 Konkrete Symptome:
 

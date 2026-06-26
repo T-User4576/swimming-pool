@@ -151,6 +151,7 @@ Materialisierungs-Strategie.
 - [`./starrocks/values-prod.yaml`](./starrocks/values-prod.yaml) — Helm-Values Produktion (kube-starrocks 1.11.4)
 - [`./starrocks/values-dev.yaml`](./starrocks/values-dev.yaml) — Dev-Variante
 - [`./starrocks/configmap-fe.yaml`](./starrocks/configmap-fe.yaml) / [`./starrocks/configmap-cn.yaml`](./starrocks/configmap-cn.yaml) — Custom Tunings
+- [`./starrocks/logging.md`](./starrocks/logging.md) — Audit-Log (`fe.audit.log` mit `connection`-Modul) + AuditLoader-Plugin air-gapped installieren
 
 ### Inhalt (./starrocks/sql/)
 - `lakekeeper-catalog.sql` — External Catalog Setup
@@ -265,6 +266,7 @@ Truth für das Deployment.
 - `interceptor/` — **eigenständiges Helm-Chart `lakekeeper-interceptor`**: Chart + Templates + Receiver-Source + Image-Build + Secret-Vorlage + eigene README (Single Source of Truth für den Interceptor)
 - `values-dev.yaml` — Lakekeeper-Helm-Overrides (reines Catalog-Setup). Prod-Werte bewusst zusammengelegt, solange sie sich von dev nicht unterscheiden; sobald eine echte Divergenz entsteht, eine `values-prod.yaml` daneben anlegen.
 - `upgrade.md` — Versions-Upgrade-Vorgehen + Stolpersteine
+- [`./lakekeeper/logging.md`](./lakekeeper/logging.md) — Audit-Logging (`LAKEKEEPER__AUDIT__TRACING__ENABLED`) der Authorization-Events
 - `cedar/` — inaktiv; Referenz für eine spätere Lakekeeper+-Evaluierung
 
 ### Inhalt (./lakekeeper/mcp/)

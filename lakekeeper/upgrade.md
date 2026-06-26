@@ -126,8 +126,8 @@ kubectl exec -n lakekeeper $LK_POD -- /home/nonroot/lakekeeper openfga reconcile
   `cache_type`-Label). Wenn Prometheus-Dashboards oder Alerts auf
   `lakekeeper_cache_*` o.ä. zugreifen: PromQL anpassen.
 - **Log-Format** ist seit v0.12.0 strukturiert (Objekte statt Strings als
-  Values). Wenn Logs nach Loki/Splunk geshippt und dort regex-geparst werden:
-  Parser-Regeln gegen das neue Format prüfen.
+  Values). Wenn Logs an ein zentrales Log-Backend geshippt und dort
+  regex-geparst werden: Parser-Regeln gegen das neue Format prüfen.
 - **`security_admin`-Zuweisungen am `svc-lakekeeper-sync`** bleiben über
   Upgrades erhalten — das ist eine OpenFGA-Tuple, kein Image-/Code-Belang.
   Falls der Receiver nach Upgrade plötzlich 403-Errors loggt: prüfen, ob die

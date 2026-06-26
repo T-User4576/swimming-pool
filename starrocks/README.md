@@ -32,6 +32,7 @@ starrocks/
 │   ├── example-mv.sql                           # Minimal-Beispiel MV
 │   ├── mv-patterns.sql                          # 3 MV-Patterns: Tages-Aggregat, Hot-Subset, Hot-Cache
 │   └── query-optimization.md                    # Cheatsheet Layout/Indizes/Stats/Anti-Patterns
+├── logging.md                                   # Audit-Log + AuditLoader-Plugin (air-gapped)
 ├── argo/
 │   └── mv-orchestration.yaml                    # WorkflowTemplate + CronWorkflow + DAG
 └── secrets/
@@ -143,4 +144,5 @@ mappen auf diese Werte.
 - **Cache-Aufwärmung** nach CN-Restart: erste Queries gegen Hot-Tabellen
   laufen langsam, bis Datacache gefüllt. Optional Cache-Preload-Job in Argo
   einplanen, falls SLA strikt.
-- **Audit Log** in Loki ingesten — sonst geht bei Pod-Recycling Historie verloren.
+- **Audit Log** in ein zentrales Log-Backend ingesten — sonst geht bei
+  Pod-Recycling Historie verloren.

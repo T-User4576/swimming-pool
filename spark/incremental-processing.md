@@ -262,7 +262,7 @@ class AuditListener(StreamingQueryListener):
 spark.streams.addListener(AuditListener())
 ```
 
-Output landet in den Pod-Logs (also Loki), aggregierbar per Job-Name.
+Output landet in den Pod-Logs (also im Log-Backend), aggregierbar per Job-Name.
 Wenn `numInputRows` über mehrere Runs hinweg auf demselben Niveau bleibt
 obwohl in der Source nichts mehr passiert, läuft der Stream nicht inkrementell.
 

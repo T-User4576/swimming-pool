@@ -97,7 +97,7 @@ Hit-Rate prüfen: `SET enable_profile=true; <query>; SHOW PROFILELIST;` → Data
 | 2. Costs prüfen | `EXPLAIN COSTS <query>` | CBO-Schätzungen — falsch = Stats stale |
 | 3. Profile aktivieren | `SET enable_profile=true; <query>` | Echte Laufzeiten pro Operator |
 | 4. Profile lesen | `SHOW PROFILELIST` → `ANALYZE PROFILE FROM '<id>'` | Bottleneck-Identifikation |
-| 5. Slow Query Log | FE Audit Log (Loki) | Aggregation über viele Queries |
+| 5. Slow Query Log | FE Audit Log (Log-Backend) | Aggregation über viele Queries |
 
 ## 9. Faustregeln
 

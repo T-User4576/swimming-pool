@@ -216,7 +216,8 @@ deps:
 ## 7. Logs & History Server
 
 **Driver-/Executor-Logs**: Stdout der Pods → ephemeral. Sobald die Pods
-weg sind, sind die Logs weg. Lösung: **Promtail/Vector → Loki** (oder ELK).
+weg sind, sind die Logs weg. Lösung: **Log-Collector (z. B. Fluent Bit /
+Vector) → zentrales Log-Backend**.
 
 **Spark UI während des Runs**:
 ```bash
