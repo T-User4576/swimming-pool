@@ -1,3 +1,4 @@
+Credits to andrej-karpathy (https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md)
 # CLAUDE.md
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
