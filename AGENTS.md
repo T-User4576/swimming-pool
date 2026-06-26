@@ -85,7 +85,8 @@ swimming-pool/
 ├── lakekeeper/                     <- Catalog-Server (OpenFGA-Authz)
 │   └── mcp/                        <- Lakekeeper-MCP-Server (OpenCode-Integration)
 ├── oidc/                           <- (leer, geplant)
-└── transform/                      <- deklarative Batch-Transformationen (Spec-Runner)
+├── transform/                      <- deklarative Batch-Transformationen (Spec-Runner)
+└── data-gateway/                   <- (Konzept) Control-Plane-Schicht; Impl. im Schwester-Repo fusion-steward
 ```
 
 Jeder Subfolder bekommt unten einen eigenen Abschnitt. Bei neuem Subfolder:
