@@ -1,0 +1,66 @@
+# Example hardened ClickHouseKeeperInstallation (Altinity operator).
+# Coordination backend for the CHI in chi-hardened.yaml.
+# Kept OUT of the Linkerd mesh on purpose (Raft quorum + mesh is fragile);
+# revisit meshing Keeper only after the cluster is stable.
+apiVersion: clickhouse-keeper.altinity.com/v1
+kind: ClickHouseKeeperInstallation
+metadata:
+  name: keeper
+  namespace: clickhouse
+spec:
+  configuration:
+    clusters:
+      - name: keeper
+        layout:
+          replicasCount: 3            # odd number -> Raft quorum (tolerates 1 loss)
+    settings:
+      logger/level: information
+      keeper_server/tcp_port: "9181"          # client port (matches CHI zookeeper.port)
+      keeper_server/raft_configuration/server/port: "9234"   # raft inter-node port
+      keeper_server/storage_path: /var/lib/clickhouse-keeper
+      keeper_server/coordination_settings/raft_logs_level: information
+
+  templates:
+    podTemplates:
+      - name: keeper-hardened
+        metadata:
+          annotations:
+            linkerd.io/inject: disabled         # keep Keeper out of the mesh for now
+        spec:
+          securityContext:                      # pod-level
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            fsGroup: 101
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: clickhouse-keeper
+              image: clickhouse/clickhouse-keeper:24.8   # pin a real tag, keep in sync with server
+              securityContext:                  # container-level
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: "1", memory: 1Gi }
+                limits:   { memory: 1Gi }
+
+    podDistribution:
+      # Spread the 3 Keeper replicas across nodes so one node loss != quorum loss.
+      - type: ClickHouseAntiAffinity
+        topologyKey: kubernetes.io/hostname
+
+    volumeClaimTemplates:
+      - name: default
+        reclaimPolicy: Retain
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+# NOTE: verify the generated client Service name and align the CHI's
+# spec.configuration.zookeeper.nodes[].host with it:
+#   kubectl get svc -n clickhouse | grep keeper

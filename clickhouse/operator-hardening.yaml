@@ -1,0 +1,26 @@
+# Helm values snippet to harden the Altinity operator pod itself so it passes
+# the "restricted" Pod Security Admission profile in its own namespace.
+#   helm upgrade --install clickhouse-operator altinity/altinity-clickhouse-operator \
+#     -n clickhouse-operator -f operator-hardening.yaml
+#
+# The operator only orchestrates CRDs/StatefulSets; it needs no extra privileges.
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534          # nobody
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:            # applied to operator + metrics-exporter containers
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# If the operator namespace enforces restricted PSA, label it accordingly:
+#   kubectl label ns clickhouse-operator \
+#     pod-security.kubernetes.io/enforce=restricted \
+#     pod-security.kubernetes.io/enforce-version=latest

@@ -1,0 +1,144 @@
+# Example hardened ClickHouseInstallation (Altinity operator).
+# Target: restricted Pod Security Admission + Linkerd service mesh.
+# Adjust namespace, topology, image tag and Keeper host to your environment.
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: ch
+  namespace: clickhouse
+spec:
+  defaults:
+    templates:
+      podTemplate: ch-hardened
+      dataVolumeClaimTemplate: data
+
+  configuration:
+    clusters:
+      - name: main
+        layout:
+          shardsCount: 2
+          replicasCount: 2
+
+    # ClickHouse Keeper as coordination backend (kept OUT of the mesh initially).
+    zookeeper:
+      nodes:
+        - host: chk-keeper.clickhouse.svc
+          port: 9181
+
+    settings:
+      # SQL-driven RBAC stored in Keeper -> consistent across all replicas.
+      access_control_improvements/users_without_row_policies_can_read_rows: 1
+
+    files:
+      # Replicated access storage: RBAC lives in Keeper, not in scattered XML.
+      config.d/access.xml: |
+        <clickhouse>
+          <user_directories>
+            <users_xml><path>users.xml</path></users_xml>
+            <replicated>
+              <zookeeper_path>/clickhouse/access/</zookeeper_path>
+            </replicated>
+          </user_directories>
+        </clickhouse>
+
+      # Tiered storage: hot parts on local NVMe, aged-out parts on MinIO/S3.
+      # The "s3_tiered" policy is referenced per-table via SETTINGS storage_policy.
+      # The "older than 4 weeks -> cold" rule itself is table DDL (TTL), not here.
+      # See s3-tiered-storage.md for the full picture (incl. zero-copy).
+      config.d/storage.xml: |
+        <clickhouse>
+          <storage_configuration>
+            <disks>
+              <s3_disk>
+                <type>s3</type>
+                <endpoint>http://minio.minio.svc:9000/clickhouse-data/</endpoint>
+                <access_key_id from_env="S3_ACCESS_KEY"/>
+                <secret_access_key from_env="S3_SECRET_KEY"/>
+                <!-- zero-copy is a separate opt-in, see merge_tree settings below -->
+              </s3_disk>
+              <s3_cache>                     <!-- local NVMe cache in front of S3 -->
+                <type>cache</type>
+                <disk>s3_disk</disk>
+                <path>/var/lib/clickhouse/s3_cache/</path>
+                <max_size>200Gi</max_size>
+              </s3_cache>
+            </disks>
+            <policies>
+              <s3_tiered>
+                <volumes>
+                  <hot>
+                    <disk>default</disk>     <!-- the local data PVC -->
+                    <move_factor>0.2</move_factor>  <!-- also move when <20% free -->
+                  </hot>
+                  <cold>
+                    <disk>s3_cache</disk>
+                  </cold>
+                </volumes>
+              </s3_tiered>
+            </policies>
+          </storage_configuration>
+          <!-- Zero-copy replication: shares ONE S3 copy across replicas instead
+               of N. Opt-in and test carefully (see s3-tiered-storage.md). -->
+          <merge_tree>
+            <allow_remote_fs_zero_copy_replication>1</allow_remote_fs_zero_copy_replication>
+          </merge_tree>
+        </clickhouse>
+
+    users:
+      # Single bootstrap admin; everything else managed via SQL (CREATE USER/ROLE).
+      admin/access_management: 1
+      admin/named_collection_control: 1
+      admin/password_sha256_hex:
+        valueFrom:
+          secretKeyRef:
+            name: ch-admin
+            key: password_sha256_hex
+      admin/networks/ip:
+        - "10.0.0.0/8"   # restrict to cluster CIDR, not 0.0.0.0/0
+
+  templates:
+    podTemplates:
+      - name: ch-hardened
+        metadata:
+          annotations:
+            # Non-HTTP ports -> opaque so Linkerd skips L7 detection but keeps mTLS.
+            config.linkerd.io/opaque-ports: "9000,9009,9181,9234"
+            # Delay app start until the linkerd proxy is ready (Keeper connect race).
+            config.linkerd.io/proxy-await: "enabled"
+        spec:
+          securityContext:                    # pod-level
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            fsGroup: 101                      # PVC must be group-writable
+            fsGroupChangePolicy: OnRootMismatch   # avoid slow recursive chown
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:24.8   # pin a real tag, no :latest
+              securityContext:                # container-level
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]               # do NOT add IPC_LOCK/SYS_NICE under "restricted"
+              env:                            # S3 creds for the s3_disk above
+                - name: S3_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef: { name: ch-s3, key: access_key }
+                - name: S3_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef: { name: ch-s3, key: secret_key }
+              resources:
+                requests: { cpu: "2", memory: 8Gi }
+                limits:   { memory: 8Gi }
+
+    volumeClaimTemplates:
+      - name: data
+        reclaimPolicy: Retain                 # never auto-delete data volumes
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 100Gi
