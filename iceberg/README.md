@@ -62,10 +62,10 @@ Spezial-Behandlung nötig → eine `ALTER TABLE ... SET TBLPROPERTIES`-Zeile.
 
 ## Was du zusätzlich beachten solltest
 
-- **Spark-Image**: `apache/spark:3.5.1-python3` ist Platzhalter. Wenn ihr ein
+- **Spark-Image**: `apache/spark:4.0.3-python3` ist Platzhalter. Wenn ihr ein
   eigenes Image mit gepinnten Iceberg-/AWS-Bundle-Versionen baut, das hier eintragen.
-- **Iceberg-Version**: Workflow verwendet `iceberg-spark-runtime 1.6.0`. Muss zur
-  Lakekeeper-Catalog-API-Version passen.
+- **Iceberg-Version**: Workflow verwendet `iceberg-spark-runtime-4.0_2.13:1.10.2`.
+  Muss zur Lakekeeper-Catalog-API-Version passen.
 - **Auth zu Lakekeeper**: aktuell unauthenticated REST. Sobald OIDC angeschlossen
   ist (`../oidc/`), müssen die Spark-Configs `spark.sql.catalog.lake.token=...`
   o.ä. ergänzt werden.

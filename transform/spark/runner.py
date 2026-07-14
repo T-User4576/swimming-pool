@@ -23,7 +23,7 @@
 #   - PyYAML must be available in the Spark image (see ../README.md,
 #     section "Code-Distribution").
 #   - The kafka source type additionally needs the package
-#     org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 (set as
+#     org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.3 (set as
 #     deps.packages in the Argo workflow).
 # =============================================================================
 

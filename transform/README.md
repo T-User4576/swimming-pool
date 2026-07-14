@@ -77,7 +77,7 @@ aus einem S3-Prefix lesen (`--spec s3a://artifacts/transform/specs/<name>.yaml`)
 Distributions-Patterns: `../spark/kubernetes.md`. Kein Custom-Image als
 alleinige Strategie (AGENTS.md, Anti-Patterns).
 
-> Hinweis: `runner.py` braucht `PyYAML` im Spark-Image. `apache/spark:3.5.1-python3`
+> Hinweis: `runner.py` braucht `PyYAML` im Spark-Image. `apache/spark:4.0.3-python3`
 > bringt es nicht garantiert mit — im PoC ggf. ergänzen, im venv-pack-Pfad über
 > `requirements.txt` lösen.
 

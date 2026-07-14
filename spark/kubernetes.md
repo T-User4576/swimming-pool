@@ -65,7 +65,7 @@ spec:
   type: Python                          # oder Scala, Java, R
   pythonVersion: "3"
   mode: cluster                         # immer cluster für Production
-  image: apache/spark:3.5.1-python3
+  image: apache/spark:4.0.3-python3
   imagePullPolicy: IfNotPresent
   mainApplicationFile: local:///opt/work/job.py
   arguments:
@@ -82,19 +82,19 @@ spec:
 
   deps:                                 # Maven-Coordinates oder Files
     packages:
-      - org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.0
+      - org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.2
 
   driver:
     cores: 2
     memory: 8g
     serviceAccount: spark-driver        # mit RBAC für Pod-Create
-    labels: { version: "3.5.1" }
+    labels: { version: "4.0.3" }
 
   executor:
     cores: 4
     instances: 5                        # statisch; oder Dynamic Allocation
     memory: 16g
-    labels: { version: "3.5.1" }
+    labels: { version: "4.0.3" }
 
   restartPolicy:
     type: OnFailure
@@ -205,12 +205,12 @@ Iceberg, S3-Connectoren, etc. müssen in den Spark-Classpath. Drei Wege:
 
 Für Production: **Image**. Für Dev/PoC: `packages`.
 
-Iceberg-spezifisch (Stand: Iceberg 1.6.0 + Spark 3.5):
+Iceberg-spezifisch (Stand: Iceberg 1.10.2 + Spark 4.0):
 ```yaml
 deps:
   packages:
-    - org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.0
-    - org.apache.iceberg:iceberg-aws-bundle:1.6.0
+    - org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.2
+    - org.apache.iceberg:iceberg-aws-bundle:1.10.2
 ```
 
 ## 7. Logs & History Server

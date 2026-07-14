@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Runner-image dependency module.
+
+  Builds no jar of its own — it collects the full jar set (incl. transitives)
+  that gets baked into the Spark runner image under /opt/spark/jars/:
+
+    mvn package            -> target/jars/
+    docker build .         -> COPY target/jars/ /opt/spark/jars/  (see Dockerfile)
+
+  This module is the ONE sanctioned home for the artifacts the parent bans:
+  hadoop-aws and the awssdk fat bundle belong in the image — and only here,
+  never in job jars. Once the image ships these jars, remove deps.packages
+  from the Argo workflows (never deliver both).
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.example.lakehouse</groupId>
+    <artifactId>spark-jobs-parent</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>runner-image</artifactId>
+  <packaging>pom</packaging>
+
+  <properties>
+    <!-- the parent's bans exist to keep hadoop-aws / fat bundles out of job
+         jars; this module is the controlled exception -->
+    <enforcer.skip>true</enforcer.skip>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- align S3A's transitive SDK bundle with Iceberg's SDK version, so
+           S3A and Iceberg S3FileIO run on the same classes inside the image -->
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bundle</artifactId>
+        <version>${awssdk.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Iceberg runtime ships in the image instead of deps.packages -->
+    <dependency>
+      <groupId>org.apache.iceberg</groupId>
+      <artifactId>iceberg-spark-runtime-4.0_${scala.binary.version}</artifactId>
+      <!-- override managed "provided": the image IS the provider -->
+      <scope>compile</scope>
+    </dependency>
+
+    <!-- S3A for Hadoop-FS paths: streaming checkpoints, landing-zone reads,
+         event logs, spark.archives. Version must match the Hadoop shipped by
+         the base image. Brings the awssdk bundle transitively (pinned above). -->
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-aws</artifactId>
+      <version>${hadoop.version}</version>
+    </dependency>
+
+    <!-- kafka source for the transform runner; kafka-clients comes transitively -->
+    <dependency>
+      <groupId>org.apache.spark</groupId>
+      <artifactId>spark-sql-kafka-0-10_${scala.binary.version}</artifactId>
+      <version>${spark.version}</version>
+    </dependency>
+
+    <!-- inherited from the parent baseline, but redundant here: the awssdk
+         bundle already contains these classes. Downgrade to "provided" so
+         copy-dependencies skips them — no duplicate classes in the image. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>apache-client</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>collect-runner-jars</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/jars</outputDirectory>
+              <!-- "runtime" = compile + runtime; excludes provided (Spark
+                   itself and the redundant awssdk singles above) and test -->
+              <includeScope>runtime</includeScope>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

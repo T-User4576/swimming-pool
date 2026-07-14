@@ -224,8 +224,8 @@ Spark Operator (`sparkoperator.k8s.io/v1beta2`).
 - [`./spark/incremental-processing.md`](./spark/incremental-processing.md) — `Trigger.AvailableNow` + Streaming-Checkpoint für inkrementelle Cron-Jobs, mit Verifikations-Checks
 
 ### Etablierte Patterns (aus dem bestehenden Repo)
-- **Spark-Version `3.5.1`** (gepinnt in `iceberg/argo/maintenance-workflow.yaml`)
-- **Iceberg-Spark-Runtime `1.6.0`** (gleicher Ort)
+- **Spark-Version `4.0.3`** (gepinnt in `iceberg/argo/maintenance-workflow.yaml`; Scala 2.13, Java 17, ANSI-Mode default-on)
+- **Iceberg-Spark-Runtime `1.10.2`** (`iceberg-spark-runtime-4.0_2.13`, gleicher Ort)
 - **Catalog-Name `lake`** (vereinheitlicht über alle Engines)
 - **Code-Distribution**: stable Runner-Image + Anwendungs-Code als **venv-pack-Archiv** (job-spezifische Python-Dependencies); ConfigMap-Mount nur für kleine Skripte wie `iceberg/spark/maintenance.py`
 - **Submission via Argo-WorkflowTemplate**, das `SparkApplication`-CRDs deklarativ erzeugt und auf Status `COMPLETED` wartet
@@ -416,8 +416,8 @@ Versionen, die im Repo gepinnt sind:
 |---|---|---|
 | StarRocks | `3.3.5` | values-prod.yaml |
 | kube-starrocks Helm Chart | `1.11.4` | (extern, Helm-Repo) |
-| Apache Spark | `3.5.1` | iceberg/argo/maintenance-workflow.yaml |
-| iceberg-spark-runtime | `1.6.0` | iceberg/argo/maintenance-workflow.yaml |
+| Apache Spark | `4.0.3` | iceberg/argo/maintenance-workflow.yaml |
+| iceberg-spark-runtime | `1.10.2` (`-4.0_2.13`) | iceberg/argo/maintenance-workflow.yaml |
 
 Bei Property-/Feld-Unsicherheit: gegen die offiziellen Repos verifizieren
 statt aus dem Gedächtnis raten. Insbesondere:

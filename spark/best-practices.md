@@ -186,7 +186,7 @@ gegen Test-Tabellen testen, bevor sie als ConfigMap in den Cluster gehen:
 docker compose up -d minio lakekeeper
 spark-submit \
   --master local[4] \
-  --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.6.0,org.apache.iceberg:iceberg-aws-bundle:1.6.0 \
+  --packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.10.2,org.apache.iceberg:iceberg-aws-bundle:1.10.2 \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
   --conf spark.sql.catalog.lake=org.apache.iceberg.spark.SparkCatalog \
   --conf spark.sql.catalog.lake.type=rest \
@@ -202,7 +202,7 @@ Das vermeidet, dass jeder Iterations-Zyklus über `kubectl create configmap` +
 | Was | Wo gepinnt |
 |---|---|
 | Spark-/Runner-Image-Tag | konkrete Version, nicht `:latest` |
-| Iceberg-Version | `iceberg-spark-runtime-3.5_2.12:1.6.0` |
+| Iceberg-Version | `iceberg-spark-runtime-4.0_2.13:1.10.2` |
 | Python-Dependencies | `requirements.txt` mit `==`-Versionen (Distribution je nach Pattern: venv-pack-Archiv, ConfigMap, Image — siehe `kubernetes.md` Abschnitt 5) |
 | Operator-Version | Helm-Chart-Version in Argo-CD/IaC |
 
