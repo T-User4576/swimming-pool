@@ -1,0 +1,11 @@
+# Allow-list for the build context: exclude everything, then re-include only
+# what the image needs. Unrelated changes (.venv, tests, notebooks, .git)
+# never invalidate the image layers.
+*
+!pyproject.toml
+!uv.lock
+# read by the build backend because pyproject.toml references it
+!README.md
+!src/
+# no bytecode, not even inside src/
+**/__pycache__

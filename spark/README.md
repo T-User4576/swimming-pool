@@ -18,6 +18,7 @@ Apache Spark auf Kubernetes via **Spark Operator**. Verwendet für:
 | [`best-practices.md`](./best-practices.md) | Sizing-Empfehlungen, Iceberg-Configs, Schreib-Patterns, Anti-Patterns, Debug-Workflow, lokales Testen, Reproduzierbarkeit. |
 | [`incremental-processing.md`](./incremental-processing.md) | Wiederaufsetz-Sicherheit für cron-getriggerte Jobs: `Trigger.AvailableNow` + Streaming-Checkpoint, Idempotent-Overwrite-Variante, Small-File-Vermeidung. |
 | [`maven/pom.xml`](./maven/pom.xml) | Parent-POM-Vorlage für JVM-Spark-Jobs: zentrale Versionspflege (Spark/Iceberg/AWS-SDK-BOM), `provided`-Scopes, Enforcer-Regeln gegen AWS-SDK-v1-/Bundle-Konflikte, Shade-Setup. Design-Begründung: [`maven/README.md`](./maven/README.md). |
+| [`python/README.md`](./python/README.md) | uv-Spickzettel: Projekt aufsetzen (inkl. `pyspark` als „provided“-dev-Dependency), Einzel-Script mit Inline-Dependencies, Befehlsübersicht. |
 
 Empfohlene Lese-Reihenfolge:
 1. `architecture.md` — Grundlagen verstehen
