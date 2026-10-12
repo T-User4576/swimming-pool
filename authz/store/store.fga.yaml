@@ -1,0 +1,95 @@
+# OpenFGA store file: model + tuples + tests in one place.
+#   fga model test   --tests store.fga.yaml    # runs locally, no server needed
+#   fga store import --file  store.fga.yaml    # creates store, writes model + tuples
+name: data-service
+model_file: ./model.fga
+tuple_file: ./tuples.yaml
+
+tests:
+  - name: cweber gets roles from two groups
+    list_objects:
+      - user: person:cweber
+        type: role
+        assertions:
+          assignee:
+            - role:pg.read_restricted
+            - role:pg.write
+            - role:ch.read
+
+  - name: dkoch has only the direct grant
+    list_objects:
+      - user: person:dkoch
+        type: role
+        assertions:
+          assignee:
+            - role:ch.read
+    check:
+      - user: person:dkoch
+        object: role:pg.read
+        assertions:
+          assignee: false
+
+  - name: efischer combines group role and direct grant
+    list_objects:
+      - user: person:efischer
+        type: role
+        assertions:
+          assignee:
+            - role:pg.read_restricted
+            - role:pg.read
+      - user: person:efischer
+        type: backend
+        assertions:
+          accessor:
+            - backend:pg
+
+  - name: bschmidt is not admin
+    check:
+      - user: person:bschmidt
+        object: role:pg.admin
+        assertions:
+          assignee: false
+      - user: person:bschmidt
+        object: role:pg.write
+        assertions:
+          assignee: true
+
+  - name: amueller (IT) reaches both backends
+    list_objects:
+      - user: person:amueller
+        type: backend
+        assertions:
+          accessor:
+            - backend:pg
+            - backend:ch
+
+  - name: frevisor (Revision) reads everything via bundle read-all
+    list_objects:
+      - user: person:frevisor
+        type: role
+        assertions:
+          assignee:
+            - role:pg.read
+            - role:ch.read
+      - user: person:frevisor
+        type: backend
+        assertions:
+          accessor:
+            - backend:pg
+            - backend:ch
+    check:
+      - user: person:frevisor
+        object: role:pg.write
+        assertions:
+          assignee: false
+      - user: person:frevisor
+        object: bundle:read-all
+        assertions:
+          assignee: true
+
+  - name: unknown user gets nothing
+    list_objects:
+      - user: person:nobody
+        type: role
+        assertions:
+          assignee: []

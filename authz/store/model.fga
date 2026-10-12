@@ -1,0 +1,26 @@
+model
+  schema 1.1
+
+# Roles are objects; one role = one DB user on one backend.
+# Roles go to group members (normal case) or to single persons (exceptions).
+# Bundles collect roles (one level, no bundles in bundles, no credentials).
+# No hierarchy between roles, no nested groups, no conditions.
+
+type person
+
+type group
+  relations
+    define member: [person]
+
+type backend
+  relations
+    define has_role: [role]
+    define accessor: assignee from has_role
+
+type bundle
+  relations
+    define assignee: [group#member, person]
+
+type role
+  relations
+    define assignee: [group#member, person, bundle#assignee]

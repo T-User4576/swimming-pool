@@ -1,0 +1,37 @@
+# Practice example for the "data-service" store.
+# Group memberships are STORED here (not contextual) - sandbox experiment.
+
+# --- 1. Backend -> roles (one entry per DB user) -------------------------
+- { user: "role:pg.read",            relation: has_role, object: "backend:pg" }
+- { user: "role:pg.write",           relation: has_role, object: "backend:pg" }
+- { user: "role:pg.admin",           relation: has_role, object: "backend:pg" }
+- { user: "role:pg.read_restricted", relation: has_role, object: "backend:pg" }
+- { user: "role:ch.read",            relation: has_role, object: "backend:ch" }
+- { user: "role:ch.write",           relation: has_role, object: "backend:ch" }
+- { user: "role:ch.admin",           relation: has_role, object: "backend:ch" }
+
+# --- 2. Group -> role (normal case) --------------------------------------
+- { user: "group:IT#member",      relation: assignee, object: "role:pg.admin" }
+- { user: "group:IT#member",      relation: assignee, object: "role:ch.admin" }
+- { user: "group:Data#member",    relation: assignee, object: "role:pg.write" }
+- { user: "group:Data#member",    relation: assignee, object: "role:ch.read" }
+- { user: "group:Finance#member", relation: assignee, object: "role:pg.read_restricted" }
+
+# --- 2b. Bundles: content and assignment ---------------------------------
+- { user: "bundle:read-all#assignee", relation: assignee, object: "role:pg.read" }
+- { user: "bundle:read-all#assignee", relation: assignee, object: "role:ch.read" }
+- { user: "group:Revision#member",    relation: assignee, object: "bundle:read-all" }
+
+# --- 3. Group memberships (stored) ---------------------------------------
+- { user: "person:amueller", relation: member, object: "group:IT" }
+- { user: "person:bschmidt", relation: member, object: "group:Data" }
+- { user: "person:cweber",   relation: member, object: "group:Finance" }
+- { user: "person:cweber",   relation: member, object: "group:Data" }
+- { user: "person:efischer", relation: member, object: "group:Finance" }
+- { user: "person:frevisor", relation: member, object: "group:Revision" }
+
+# --- 4. Single persons -> role (exceptions) --------------------------------
+# Auditor without group: read-only on ClickHouse
+- { user: "person:dkoch",    relation: assignee, object: "role:ch.read" }
+# Finance member who additionally needs full read on Postgres
+- { user: "person:efischer", relation: assignee, object: "role:pg.read" }

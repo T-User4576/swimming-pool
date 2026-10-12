@@ -1,0 +1,94 @@
+# OpenFGA Helm values - central authz (swimming-pool/authz/konzept.md).
+# Chart openfga/openfga 0.3.16 (app v1.22.0). Options: see config.md.
+#
+# Install (no --wait/--atomic: DB migration runs as post-install hook):
+#   helm upgrade --install openfga openfga/openfga --version 0.3.16 \
+#     --namespace authz --values authz/values-openfga.yaml
+#
+# Required in the cluster (NOT part of this chart):
+#   - Secret `openfga-postgres-uri`, key `uri`:
+#       postgres://openfga:<pw>@<host>:5432/openfga?sslmode=require
+#   - Secret `openfga-preshared-keys`, key `keys` (comma-separated), e.g. via VSO
+#   - kube-prometheus-stack (for the ServiceMonitor) and metrics-server (for the HPA)
+#
+# Required overrides per environment:
+#   - initContainer.repository (internal registry mirror of k8s-wait-for)
+
+image:
+  repository: openfga/openfga
+  tag: v1.22.0
+  pullPolicy: IfNotPresent
+
+# --- Scaling ----------------------------------------------------------------
+# With the HPA enabled the chart omits `replicas`; replicaCount is ignored.
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: null   # scale on CPU only
+
+# HPA utilisation is relative to these requests.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits:   { cpu: "1",  memory: 512Mi }
+
+# --- External Postgres ------------------------------------------------------
+datastore:
+  engine: postgres
+  uriSecret: openfga-postgres-uri
+  # Per replica: maxReplicas x maxOpenConns must fit Postgres max_connections.
+  maxOpenConns: 20
+  maxIdleConns: 10
+  connMaxLifetime: 30m
+  applyMigrations: true
+  waitForMigrations: true
+  migrationType: job   # the migration job itself runs the openfga image (`migrate`)
+
+# Migration image: the init container waits for the migration job with
+# groundnuty/k8s-wait-for (Docker Hub) -> mirror it to the internal registry.
+# Note: `datastore.migrations.image` exists in the chart values but is not
+# used by any template in 0.3.16; `initContainer` is the effective setting.
+initContainer:
+  repository: registry.example.internal/mirror/groundnuty/k8s-wait-for
+  tag: "v2.0"
+  pullPolicy: IfNotPresent
+
+# --- Prometheus -------------------------------------------------------------
+telemetry:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        release: prometheus   # must match the serviceMonitorSelector of the Prometheus CR
+
+# --- Hardening (concept section 8) ------------------------------------------
+authn:
+  method: preshared
+  preshared:
+    keysSecret: openfga-preshared-keys
+
+playground:
+  enabled: false
+
+# http.corsAllowedOrigins: an empty list is skipped by the chart and the server
+# keeps its default "*". No browser talks to OpenFGA and authn is on, so it is
+# left as is; set a concrete origin list if a browser client is ever added.
+
+podSecurityContext:
+  runAsNonRoot: true
+  # k8s-wait-for has no USER (would run as root); pin the openfga image's
+  # nonroot UID for all containers. Verify the init container in kiddie-pool.
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile: { type: RuntimeDefault }
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: { drop: [ALL] }
+
+log:
+  level: info
+  format: json
